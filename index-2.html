@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@12/swiper-bundle.min.css" />
+    <link rel="stylesheet" href="./css/index-2.css">
+    <title>March Calendar Tasks</title>
+</head>
+
+<body>
+    <section>
+        <div class="month">
+            <div class="month-header">
+                <div class="calendar-controls">
+                    <select id="designer-select" aria-label="Select designer"></select>
+                    <select id="month-select" aria-label="Select month"></select>
+                    <select id="year-select" aria-label="Select year"></select>
+                </div>
+                <div class="calendar-nav">
+                    <div class="swiper-button-prev" aria-label="Previous day">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M15.5 4.5L8 12l7.5 7.5" />
+                        </svg>
+                    </div>
+                    <div class="swiper-button-next" aria-label="Next day">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M8.5 4.5L16 12l-7.5 7.5" />
+                        </svg>
+                    </div>
+                </div>
+            </div>
+
+            <div class="swiper">
+                <div class="swiper-wrapper" id="calendar-wrapper"></div>
+            </div>
+        </div>
+    </section>
+
+    <script src="https://cdn.jsdelivr.net/npm/swiper@12/swiper-bundle.min.js"></script>
+    <script>
+        const dayShort = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+        const yearStart = 2026;
+        const yearEnd = 2026;
+        const designers = ["Kumar", "Esther", "Meghna", "Disha"];
+        const indiaPublicHolidays2026 = {
+            "01-01": "New Year's Day",
+            "14-01": "Makar Sankranti",
+            "26-01": "Republic Day",
+            "04-03": "Holi",
+            "21-03": "Id-ul-Fitr",
+            "26-03": "Ram Navami",
+            "31-03": "Mahavir Jayanti",
+            "03-04": "Good Friday",
+            "01-05": "Buddha Purnima",
+            "27-05": "Id-ul-Zuha (Bakrid)",
+            "26-06": "Muharram",
+            "15-08": "Independence Day",
+            "26-08": "Milad-un-Nabi",
+            "04-09": "Janmashtami",
+            "02-10": "Gandhi Jayanti",
+            "20-10": "Dussehra",
+            "08-11": "Diwali",
+            "24-11": "Guru Nanak Jayanti",
+            "25-12": "Christmas Day"
+        };
+        const taskCatalog = [
+            {
+                brand: "Aditya Birla Fashion",
+                name: "Instagram Promo Creative",
+                instruction: "Create a warm-toned post to highlight weekly offers and signature products."
+            },
+            {
+                brand: "Web Packaging Solution",
+                name: "Campaign Story Set",
+                instruction: "Design a 3-frame story set with clear CTA and conversion-focused hierarchy."
+            },
+            {
+                brand: "Avant",
+                name: "Web Hero Banner",
+                instruction: "Create desktop and mobile hero variations for seasonal home-page refresh."
+            },
+            {
+                brand: "Avyens",
+                name: "Email Header Pack",
+                instruction: "Design reusable header styles for newsletters and product launch updates."
+            },
+            {
+                brand: "Selkie's Cafe",
+                name: "Product Reel Thumbnails",
+                instruction: "Build thumbnail variants with strong typographic contrast for social reels."
+            },
+            {
+                brand: "PropTech",
+                name: "In-store Poster Design",
+                instruction: "Create A3 poster concept for monthly combo offers and festive discounts."
+            },
+            {
+                brand: "EMA Partners",
+                name: "Ad Resize Batch",
+                instruction: "Prepare performance ad resizes for all paid channels in required dimensions."
+            },
+            {
+                brand: "James Douglas India",
+                name: "Packaging Label Revamp",
+                instruction: "Redesign primary packaging labels aligned with updated brand guidelines."
+            },
+            {
+                brand: "James Douglas Middle East",
+                name: "Landing Visual Kit",
+                instruction: "Create visual blocks and supporting graphics for landing page storytelling."
+            },
+            {
+                brand: "James Douglas Global",
+                name: "Festival Offer Creatives",
+                instruction: "Design campaign creatives for social feed, stories, and print handouts."
+            }
+        ];
+        const statusList = ["Assigned", "In Progress", "Review"];
+        const designerOngoingTasks2026 = {
+            "Kumar": [
+                {
+                    brand: "Aditya Birla Fashion",
+                    name: "Spring Campaign Master Creative",
+                    instruction: "Build the primary campaign key visual and adapt it across social formats.",
+                    status: "In Progress",
+                    points: 12,
+                    start: "2026-03-24",
+                    end: "2026-03-26"
+                }
+            ],
+            "Esther": [],
+            "Meghna": [],
+            "Disha": []
+        };
+
+        const wrapper = document.getElementById("calendar-wrapper");
+        const designerSelect = document.getElementById("designer-select");
+        const monthSelect = document.getElementById("month-select");
+        const yearSelect = document.getElementById("year-select");
+
+        let selectedDesigner = "Kumar";
+        let selectedMonth = 2;
+        let selectedYear = 2026;
+        const designerLeaveCalendar = {};
+
+        function setupFilters() {
+            designers.forEach((designer) => {
+                const option = document.createElement("option");
+                option.value = designer;
+                option.textContent = designer;
+                designerSelect.appendChild(option);
+            });
+
+            monthNames.forEach((name, index) => {
+                const option = document.createElement("option");
+                option.value = String(index);
+                option.textContent = name;
+                monthSelect.appendChild(option);
+            });
+
+            for (let y = yearStart; y <= yearEnd; y++) {
+                const option = document.createElement("option");
+                option.value = String(y);
+                option.textContent = String(y);
+                yearSelect.appendChild(option);
+            }
+
+            designerSelect.value = selectedDesigner;
+            monthSelect.value = String(selectedMonth);
+            yearSelect.value = String(selectedYear);
+        }
+
+        function formatDate(day, month, year) {
+            return `${String(day).padStart(2, "0")}/${String(month + 1).padStart(2, "0")}/${year}`;
+        }
+
+        function pickUniqueWeekdays(candidates, required, seed) {
+            const result = [];
+            if (!candidates.length) {
+                return result;
+            }
+
+            let cursor = seed % candidates.length;
+            while (result.length < required && result.length < candidates.length) {
+                const value = candidates[cursor];
+                if (!result.includes(value)) {
+                    result.push(value);
+                }
+                cursor = (cursor + 3) % candidates.length;
+            }
+            return result;
+        }
+
+        function buildLeaveCalendar(year) {
+            designers.forEach((designer, designerIndex) => {
+                designerLeaveCalendar[designer] = {};
+
+                for (let month = 0; month < 12; month++) {
+                    const totalDays = new Date(year, month + 1, 0).getDate();
+                    const monthCandidates = [];
+
+                    for (let day = 1; day <= totalDays; day++) {
+                        const date = new Date(year, month, day);
+                        const weekDay = date.getDay();
+                        const key = `${String(day).padStart(2, "0")}-${String(month + 1).padStart(2, "0")}`;
+                        if (weekDay !== 0 && !indiaPublicHolidays2026[key]) {
+                            monthCandidates.push(day);
+                        }
+                    }
+
+                    const leaves = pickUniqueWeekdays(monthCandidates, 4, (designerIndex + 1) * (month + 5));
+                    leaves.forEach((day, idx) => {
+                        const key = `${String(day).padStart(2, "0")}-${String(month + 1).padStart(2, "0")}`;
+                        designerLeaveCalendar[designer][key] = {
+                            type: idx < 2 ? "Sick Leave" : "Earned Leave"
+                        };
+                    });
+                }
+            });
+        }
+
+        function getTaskTemplateIndex(day, month, designerIndex, slot) {
+            return (day * 3 + month * 5 + designerIndex * 7 + slot) % taskCatalog.length;
+        }
+
+        function createDailyTasks(day, month, year, designer, weekDay, holidayName, leaveInfo) {
+            if (weekDay === 0 || holidayName || leaveInfo) {
+                return [];
+            }
+
+            const designerIndex = designers.indexOf(designer);
+            const taskCount = 2 + ((day + month + designerIndex) % 2);
+            const tasks = [];
+
+            for (let slot = 0; slot < taskCount; slot++) {
+                const template = taskCatalog[getTaskTemplateIndex(day, month, designerIndex, slot)];
+                tasks.push({
+                    ...template,
+                    status: statusList[(day + slot + designerIndex) % statusList.length],
+                    points: 6 + ((day + slot + month) % 6)
+                });
+            }
+
+            return tasks;
+        }
+
+        function getOngoingTasksForDay(day, month, year, designer) {
+            const currentDate = new Date(year, month, day);
+            const ongoingTasks = designerOngoingTasks2026[designer] || [];
+            const visibleTasks = [];
+
+            for (const task of ongoingTasks) {
+                const startDate = new Date(task.start);
+                const endDate = new Date(task.end);
+
+                if (currentDate >= startDate && currentDate <= endDate) {
+                    let progressLabel = "Continued";
+                    if (currentDate.getTime() === startDate.getTime()) {
+                        progressLabel = "Started";
+                    } else if (currentDate.getTime() === endDate.getTime()) {
+                        progressLabel = "Ends Today";
+                    }
+
+                    visibleTasks.push({
+                        ...task,
+                        progressLabel
+                    });
+                }
+            }
+
+            return visibleTasks;
+        }
+
+        function renderCalendar(month, year) {
+            const totalDays = new Date(year, month + 1, 0).getDate();
+            wrapper.innerHTML = "";
+
+            for (let day = 1; day <= totalDays; day++) {
+                const date = new Date(year, month, day);
+                const weekDay = date.getDay();
+                const holidayKey = `${String(day).padStart(2, "0")}-${String(month + 1).padStart(2, "0")}`;
+                const holidayName = indiaPublicHolidays2026[holidayKey];
+                const leaveInfo = (designerLeaveCalendar[selectedDesigner] || {})[holidayKey];
+                const dayTasks = createDailyTasks(day, month, year, selectedDesigner, weekDay, holidayName, leaveInfo);
+                const ongoingTasks = getOngoingTasksForDay(day, month, year, selectedDesigner);
+                const tasksForDay = [...ongoingTasks, ...dayTasks];
+
+                const slide = document.createElement("div");
+                slide.className = "swiper-slide";
+
+                const header = document.createElement("div");
+                header.className = "slide-header";
+                header.innerHTML = `
+                    <h1>${dayShort[weekDay]} ${day}</h1>
+                    ${holidayName ? `<small class="holiday-chip">Holiday</small>` : ""}
+                `;
+                slide.appendChild(header);
+
+                if (holidayName) {
+                    const holidayCard = document.createElement("div");
+                    holidayCard.className = "holiday-card";
+                    holidayCard.innerHTML = `
+                        <small>India Public Holiday</small>
+                        <h2>${holidayName}</h2>
+                        <p>${formatDate(day, month, year)}</p>
+                    `;
+                    slide.appendChild(holidayCard);
+                }
+
+                if (leaveInfo) {
+                    const leaveCard = document.createElement("div");
+                    leaveCard.className = `leave-card ${leaveInfo.type === "Sick Leave" ? "sick-leave" : "on-leave"}`;
+                    leaveCard.innerHTML = `
+                        <small>Team Availability</small>
+                        <h2>${leaveInfo.type}</h2>
+                        <p>${selectedDesigner} - ${formatDate(day, month, year)}</p>
+                    `;
+                    slide.appendChild(leaveCard);
+                }
+
+                if (weekDay === 0) {
+                    wrapper.appendChild(slide);
+                    continue;
+                }
+
+                for (const task of tasksForDay) {
+                    const taskCard = document.createElement("div");
+                    taskCard.className = "task-card";
+                    taskCard.innerHTML = `
+                    <small class="task-item task-item-brand">${task.brand}</small>
+                    <h1 class="task-item task-item-name">${task.name}</h1>
+                    ${task.progressLabel ? `<small class="task-progress">${task.progressLabel}</small>` : ""}
+                    <p class="task-item task-item-instruction">${task.instruction}</p>
+
+                    <div class="task-footer">
+                        <div class="row secondary-row">
+                            <div class="button-wrapper">
+                                <label>Status</label>
+                                <select>
+                                    <option>${task.status}</option>
+                                </select>
+                            </div>
+                            <div class="button-wrapper">
+                                <label>Designer:</label>
+                                <select>
+                                    <option>${selectedDesigner}</option>
+                                </select>
+                            </div>
+                            <div class="button-wrapper">
+                                <label>Points:</label>
+                                <p>${task.points}</p>
+                            </div>
+                        </div>
+
+                        <div class="row secondary-row">
+                            <div class="button-wrapper">
+                                <label>Given at:</label>
+                                <p>${formatDate(day, month, year)}</p>
+                            </div>
+                            <div class="button-wrapper">
+                                <label>Submitted at:</label>
+                                <p>${formatDate(Math.min(day + 1, totalDays), month, year)}</p>
+                            </div>
+                            <div class="button-wrapper">
+                                <label>Due at:</label>
+                                <p>${formatDate(Math.min(day + 2, totalDays), month, year)}</p>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                    slide.appendChild(taskCard);
+                }
+
+                wrapper.appendChild(slide);
+            }
+        }
+
+        const swiper = new Swiper('.swiper', {
+            direction: 'horizontal',
+            loop: false,
+            slidesPerView: 3.2,
+            spaceBetween: 0,
+            navigation: {
+                nextEl: '.swiper-button-next',
+                prevEl: '.swiper-button-prev',
+            },
+        });
+
+        setupFilters();
+        buildLeaveCalendar(selectedYear);
+        renderCalendar(selectedMonth, selectedYear);
+        swiper.update();
+
+        designerSelect.addEventListener("change", () => {
+            selectedDesigner = designerSelect.value;
+            renderCalendar(selectedMonth, selectedYear);
+            swiper.update();
+            swiper.slideTo(0, 0);
+        });
+
+        monthSelect.addEventListener("change", () => {
+            selectedMonth = Number(monthSelect.value);
+            renderCalendar(selectedMonth, selectedYear);
+            swiper.update();
+            swiper.slideTo(0, 0);
+        });
+
+        yearSelect.addEventListener("change", () => {
+            selectedYear = Number(yearSelect.value);
+            buildLeaveCalendar(selectedYear);
+            renderCalendar(selectedMonth, selectedYear);
+            swiper.update();
+            swiper.slideTo(0, 0);
+        });
+    </script>
+</body>
+
+</html>

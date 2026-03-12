@@ -1,0 +1,405 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,100..700;1,100..700&display=swap');
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    font-family: "IBM Plex Sans", sans-serif;
+}
+
+body {
+    background: #242423;
+    color: #c8c3bb;
+    padding: 16px;
+    position: relative;
+    min-height: 100vh;
+    overflow-x: hidden;
+}
+
+/* Firefox scrollbar */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: #8f745f #2a2927;
+}
+
+/* WebKit scrollbar */
+*::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+    background: #2a2927;
+    border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #e18460 0%, #b76f52 100%);
+    border-radius: 999px;
+    border: 2px solid #2a2927;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, #f29a74 0%, #c27c5e 100%);
+}
+
+body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background:
+        radial-gradient(circle at 12% 50%, rgba(228, 118, 74, 0.10) 0%, transparent 52%),
+        radial-gradient(circle at 90% 18%, rgba(255, 255, 255, 0.04) 0%, transparent 35%),
+        linear-gradient(135deg, #212120 0%, #262625 50%, #232322 100%);
+    z-index: -2;
+}
+
+body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 10, 10, 0.18);
+    backdrop-filter: blur(14px) saturate(120%);
+    -webkit-backdrop-filter: blur(14px) saturate(120%);
+    z-index: -1;
+}
+
+.month {
+    margin: 0 auto;
+    position: relative;
+}
+
+.month-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.calendar-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.calendar-controls select {
+    min-width: 120px;
+    border: 1px solid #3c3b38;
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 14px;
+    font-weight: 500;
+    background: #2e2d2b;
+    color: #cbc5bc;
+    outline: none;
+}
+
+.calendar-controls select:focus {
+    border-color: #e4764a;
+    box-shadow: 0 0 0 2px rgba(228, 118, 74, 0.22);
+}
+
+.swiper-slide {
+    height: 88vh;
+    overflow-y: auto;
+    padding-bottom: 8px;
+    padding: 6px;
+}
+
+.swiper {
+    position: relative;
+}
+
+.calendar-nav {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.slide-header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: rgba(43, 42, 39, 0.92);
+    color: #d3cec5;
+    padding: 6px 0;
+    text-align: center;
+    border-radius: 10px;
+    border: 1px solid #47453f;
+    margin-bottom: 8px;
+}
+
+.slide-header h1 {
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.holiday-chip {
+    display: inline-block;
+    margin-top: 4px;
+    padding: 2px 8px;
+    font-size: 11px;
+    border-radius: 999px;
+    background: rgba(228, 118, 74, 0.18);
+    color: #f09a76;
+    animation: chipPulse 2.2s ease-in-out infinite;
+}
+
+.holiday-card {
+    background: #2c2b29;
+    border: 1px solid #44423d;
+    border-left: 4px solid #e4764a;
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 10px;
+    animation: cardIn 0.35s ease-out both;
+}
+
+.holiday-card small {
+    font-size: 12px;
+    color: #c5b39f;
+}
+
+.holiday-card h2 {
+    font-size: 16px;
+    margin-top: 4px;
+    color: #ddd8cf;
+}
+
+.holiday-card p {
+    font-size: 13px;
+    margin-top: 4px;
+}
+
+.leave-card {
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 10px;
+    border: 1px solid #44423d;
+    background: #2b2a28;
+    animation: cardIn 0.35s ease-out both;
+}
+
+.leave-card small {
+    font-size: 12px;
+    color: #b7b0a6;
+}
+
+.leave-card h2 {
+    font-size: 16px;
+    margin-top: 4px;
+    color: #d9d3cb;
+}
+
+.leave-card p {
+    font-size: 13px;
+    margin-top: 4px;
+}
+
+.leave-card.on-leave {
+    border-left: 4px solid #8a7f70;
+}
+
+.leave-card.sick-leave {
+    border-left: 4px solid #e4764a;
+    background: #312925;
+}
+
+.task-card {
+    background: #2d2c2a;
+    border: 1px solid #45433e;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 10px;
+    box-shadow: 0 8px 20px rgba(2, 4, 10, 0.34);
+    animation: cardIn 0.35s ease-out both;
+    transform-style: preserve-3d;
+    perspective: 1000px;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.task-card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.12), transparent 45%);
+    opacity: 0;
+    transition: opacity 0.25s ease;
+    pointer-events: none;
+}
+
+.task-card:hover {
+    transform: perspective(1000px) rotateX(4deg) rotateY(-4deg) translateY(-4px);
+    border-color: #6a5b4f;
+    box-shadow: 0 18px 26px rgba(0, 0, 0, 0.5);
+}
+
+.task-card:hover::before {
+    opacity: 1;
+}
+
+.task-item-brand {
+    font-size: 13px;
+    color: #e39a77;
+}
+
+.task-item-name {
+    font-size: 16px;
+    font-family: "Plus Jakarta Sans", sans-serif;
+    font-weight: 500;
+    margin-top: 8px;
+    margin-bottom: 8px;
+}
+
+.task-item-instruction {
+    font-size: 14px;
+    line-height: 1.45;
+}
+
+.task-progress {
+    display: inline-block;
+    font-size: 11px;
+    margin-bottom: 8px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    color: #f3b598;
+    background: rgba(228, 118, 74, 0.2);
+    border: 1px solid rgba(228, 118, 74, 0.35);
+}
+
+.task-footer .secondary-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 10px;
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid #46433d;
+}
+
+.task-card label {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    margin-bottom: 4px;
+}
+
+.task-card p {
+    font-size: 13px;
+}
+
+.task-footer select {
+    width: 100%;
+    border: 1px solid #4a4842;
+    border-radius: 6px;
+    padding: 4px 6px;
+    font-size: 13px;
+    background: #262523;
+    color: #d5d0c8;
+}
+
+.calendar-nav .swiper-button-prev,
+.calendar-nav .swiper-button-next {
+    color: #e6845d;
+    position: static;
+    left: auto;
+    right: auto;
+    width: 40px;
+    height: 40px;
+    margin: 0;
+    border-radius: 50%;
+    background: #2f2e2c;
+    border: 1px solid #4a4741;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+    display: grid;
+    place-items: center;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+.calendar-nav .swiper-button-prev::after,
+.calendar-nav .swiper-button-next::after {
+    content: none;
+}
+
+.calendar-nav svg {
+    height: 100%;
+    object-fit: contain;
+    transform-origin: center;
+    width: 100%;
+    fill: currentColor;
+    pointer-events: none;
+    height: 14px;
+}
+
+.calendar-nav svg path {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.calendar-nav .swiper-button-prev:hover,
+.calendar-nav .swiper-button-next:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.42);
+    background: #373530;
+}
+
+.calendar-nav .swiper-button-disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+@keyframes cardIn {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes chipPulse {
+    0%,
+    100% {
+        transform: scale(1);
+        opacity: 0.9;
+    }
+
+    50% {
+        transform: scale(1.03);
+        opacity: 1;
+    }
+}
+
+@media (max-width: 900px) {
+    .swiper-slide {
+        height: 82vh;
+    }
+
+    .month-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .calendar-controls {
+        width: 100%;
+    }
+
+    .calendar-controls select {
+        flex: 1;
+    }
+
+    .task-footer .secondary-row {
+        grid-template-columns: 1fr;
+    }
+}

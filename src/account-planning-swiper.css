@@ -1,0 +1,379 @@
+.ap-swiper-page {
+  color: #c8c3bb;
+  min-height: calc(100vh - 56px);
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid #3a3936;
+  background:
+    radial-gradient(circle at 12% 50%, rgba(228, 118, 74, 0.1) 0%, transparent 52%),
+    radial-gradient(circle at 90% 18%, rgba(255, 255, 255, 0.04) 0%, transparent 35%),
+    linear-gradient(135deg, #212120 0%, #262625 50%, #232322 100%);
+}
+
+.ap2-month {
+  margin: 0 auto;
+}
+
+.ap2-client-wise-panel {
+  border: 1px solid #3f3d38;
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 14px;
+  background: rgba(35, 34, 31, 0.85);
+}
+
+.ap2-client-wise-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.ap2-client-wise-header h2 {
+  margin: 0;
+  font-size: 16px;
+  color: #ebe5dd;
+}
+
+.ap2-client-wise-header span {
+  color: #d9b29d;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ap2-client-meta,
+.ap2-client-error {
+  margin: 0;
+  font-size: 13px;
+}
+
+.ap2-client-error {
+  color: #f5a591;
+}
+
+.ap2-client-wise-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.ap2-client-wise-card {
+  border: 1px solid #494741;
+  border-radius: 10px;
+  padding: 10px;
+  background: #2a2926;
+}
+
+.ap2-client-wise-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.ap2-client-wise-card-head h3 {
+  margin: 0;
+  font-size: 13px;
+  color: #f1ece4;
+}
+
+.ap2-client-wise-card-head small {
+  color: #d2c8ba;
+  font-size: 11px;
+}
+
+.ap2-client-wise-card ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 7px;
+}
+
+.ap2-client-wise-card li {
+  padding: 7px 8px;
+  border-radius: 8px;
+  border: 1px solid #44413a;
+  background: #262521;
+}
+
+.ap2-client-wise-task {
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: #dcd5cb;
+}
+
+.ap2-client-wise-card li span {
+  font-size: 11px;
+  color: #e39a77;
+}
+
+.ap2-month-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.ap2-calendar-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ap2-calendar-controls select {
+  min-width: 120px;
+  border: 1px solid #3c3b38;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 14px;
+  font-weight: 500;
+  background: #2e2d2b;
+  color: #cbc5bc;
+  outline: none;
+}
+
+.ap2-calendar-controls select:focus {
+  border-color: #e4764a;
+  box-shadow: 0 0 0 2px rgba(228, 118, 74, 0.22);
+}
+
+.ap2-calendar-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ap2-swiper {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+}
+
+.ap2-swiper-slide {
+  height: 82vh;
+  overflow-y: auto;
+  padding: 6px;
+  min-width: 0;
+}
+
+.ap2-slide-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: rgba(43, 42, 39, 0.92);
+  color: #d3cec5;
+  padding: 6px 0;
+  text-align: center;
+  border-radius: 10px;
+  border: 1px solid #47453f;
+  margin-bottom: 8px;
+}
+
+.ap2-slide-header h1 {
+  font-size: 14px;
+  font-weight: 500;
+  margin: 0;
+}
+
+.ap2-holiday-chip {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  border-radius: 999px;
+  background: rgba(228, 118, 74, 0.18);
+  color: #f09a76;
+}
+
+.ap2-holiday-card {
+  background: #2c2b29;
+  border: 1px solid #44423d;
+  border-left: 4px solid #e4764a;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+
+.ap2-holiday-card small {
+  font-size: 12px;
+  color: #c5b39f;
+}
+
+.ap2-holiday-card h2 {
+  font-size: 16px;
+  margin-top: 4px;
+  color: #ddd8cf;
+}
+
+.ap2-holiday-card p {
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.ap2-leave-card {
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  border: 1px solid #44423d;
+  background: #2b2a28;
+}
+
+.ap2-leave-card small {
+  font-size: 12px;
+  color: #b7b0a6;
+}
+
+.ap2-leave-card h2 {
+  font-size: 16px;
+  margin-top: 4px;
+  color: #d9d3cb;
+}
+
+.ap2-leave-card p {
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.ap2-leave-card.on-leave {
+  border-left: 4px solid #8a7f70;
+}
+
+.ap2-leave-card.sick-leave {
+  border-left: 4px solid #e4764a;
+  background: #312925;
+}
+
+.ap2-task-card {
+  background: #2d2c2a;
+  border: 1px solid #45433e;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 10px;
+  box-shadow: 0 8px 20px rgba(2, 4, 10, 0.34);
+}
+
+.ap2-task-item-brand {
+  font-size: 13px;
+  color: #e39a77;
+}
+
+.ap2-task-item-name {
+  font-size: 16px;
+  font-weight: 500;
+  margin: 8px 0;
+}
+
+.ap2-task-item-instruction {
+  font-size: 14px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.ap2-task-progress {
+  display: inline-block;
+  font-size: 11px;
+  margin-bottom: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: #f3b598;
+  background: rgba(228, 118, 74, 0.2);
+  border: 1px solid rgba(228, 118, 74, 0.35);
+}
+
+.ap2-task-footer-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #46433d;
+}
+
+.ap2-button-wrapper label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.ap2-button-wrapper p {
+  font-size: 13px;
+  margin: 0;
+}
+
+.ap2-button-wrapper select {
+  width: 100%;
+  border: 1px solid #4a4842;
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 13px;
+  background: #262523;
+  color: #d5d0c8;
+}
+
+.ap2-calendar-nav .ap2-swiper-button-prev,
+.ap2-calendar-nav .ap2-swiper-button-next {
+  color: #e6845d;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #2f2e2c;
+  border: 1px solid #4a4741;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.ap2-swiper .swiper-wrapper {
+  align-items: flex-start;
+}
+
+.ap2-swiper .swiper-slide {
+  height: auto;
+}
+
+.ap2-calendar-nav svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+}
+
+.ap2-calendar-nav svg path {
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@media (max-width: 900px) {
+  .ap-swiper-page {
+    padding: 12px;
+  }
+
+  .ap2-swiper-slide {
+    height: 72vh;
+  }
+
+  .ap2-month-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .ap2-calendar-controls {
+    width: 100%;
+  }
+
+  .ap2-calendar-controls select {
+    flex: 1;
+  }
+
+  .ap2-task-footer-row {
+    grid-template-columns: 1fr;
+  }
+}

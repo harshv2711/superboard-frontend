@@ -1,0 +1,152 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&display=swap');
+
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,100..700;1,100..700&display=swap');
+* {
+    /* font-family: "Plus Jakarta Sans"; */
+    font-family: "IBM Plex Sans";
+}
+
+.card {
+    display: flex;
+    gap: 6px;
+    position: relative;
+}
+
+.card .date {
+    background: rgb(227, 224, 224);
+    height: fit-content;
+    border-radius: 6px;
+    position: sticky;
+    top: 1em;
+}
+
+.card .date small{
+    margin: 0%;
+    padding: 0%;
+}
+
+.card .date {
+    padding: 1em;
+}
+
+.container {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+}
+
+.date h1 {
+    font-size: 22px;
+    margin: 0%;
+    padding: 0%;
+}
+
+.task-item-brand {
+    margin: 0%;
+    padding: 0%;
+    font-size: 14px;
+}
+
+.task-card * {
+    margin: 0%;
+    padding: 0%;
+}
+
+.task-card {
+    padding: 1em;
+    border: 1px solid rgb(228, 228, 228);
+    border-radius: 6px;
+}
+
+.task-item-name {
+    font-size: 16px;
+    margin: 9px 0 9px 0;
+    font-family: "Plus Jakarta Sans";
+    font-weight: 400;
+}
+
+.task-card label {
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.task-card p {
+    font-size: 14px;
+}
+
+.task-footer .row {
+    display: flex;
+    align-items: center;
+    gap: 1em;
+    justify-content: space-between;
+
+}
+
+.task-footer .secondary-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    margin-top: 1em;
+    border-top: 1px solid rgb(228, 228, 228);
+    padding-top: 1em;
+}
+
+.task-footer select {
+    display: block;
+    font-size: 14px;
+    margin-top: 6px;
+    width: 100%;
+    padding: 3px;
+    border: 1px solid rgb(207, 207, 207);
+    border-radius: 6px;
+    
+}
+
+.task-item-instruction {
+    margin-top: 1em;
+    font-size: 14px!important;
+    line-height: 1.4;
+}
+
+.task-list {
+    display: grid;
+    gap: 1em;
+}
+
+.slide-header h1 {
+    font-size: 14px;
+    font-weight: 400;
+    color: white;
+}
+
+.slide-header {
+    position: sticky;
+    top: 0%;
+    background: rgba(225, 225, 225, 0.482);
+    padding: 6px 0;
+    text-align: center;
+    margin-bottom: 3px;
+    border-radius: 6px;
+    padding-top: 3px;
+    padding-bottom: 3px;
+    background: #484848;
+}
+
+.heading {
+    font-size: 16px;
+    font-weight: 400;
+}
+
+
+.swiper-slide {
+    height: 90vh;
+    overflow: scroll;
+    position: relative;
+}
+
+.task-card {
+    margin-bottom: 1em;
+}
+
+.month {
+    margin: auto;
+}
+
