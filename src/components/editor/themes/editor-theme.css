@@ -1,0 +1,27 @@
+.EditorTheme__code {
+  background-color: transparent;
+  font-family: Menlo, Consolas, Monaco, monospace;
+  display: block;
+  padding: 8px 8px 8px 52px;
+  line-height: 1.53;
+  font-size: 13px;
+  margin: 8px 0;
+  overflow-x: auto;
+  border: 1px solid #ccc;
+  position: relative;
+  border-radius: 8px;
+  tab-size: 2;
+}
+
+.EditorTheme__code:before {
+  content: attr(data-gutter);
+  position: absolute;
+  border-right: 1px solid #ccc;
+  left: 0;
+  top: 0;
+  padding: 8px;
+  color: #777;
+  white-space: pre-wrap;
+  text-align: right;
+  min-width: 25px;
+}

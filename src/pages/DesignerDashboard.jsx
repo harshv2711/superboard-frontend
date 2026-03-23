@@ -1,21 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { superboardApi } from "../api/superboardApi.js";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const roleDesigner = "designer";
 
-function toStatusLabel(status) {
-  return (
-    {
-      brief_received: "Brief Received",
-      ideation: "Ideation",
-      designing: "Designing",
-      internal_review: "Internal Review",
-      client_review: "Client Review",
-      revision: "Revision",
-      approved: "Approved",
-      published: "Published",
-    }[status] || status
-  );
+function toTaskTypeLabel(task) {
+  if (task?.redo_of) return "Redo";
+  if (task?.revision_of) return "Revision";
+  return "Original";
 }
 
 export default function DesignerDashboard() {
@@ -74,20 +66,20 @@ export default function DesignerDashboard() {
         <label htmlFor="designer-filter" style={{ display: "block", marginBottom: 8 }}>
           Designer
         </label>
-        <select
-          id="designer-filter"
-          value={selectedDesignerId}
-          onChange={(event) => setSelectedDesignerId(event.target.value)}
-          style={{ minWidth: 280, padding: 8 }}
-        >
+        <Select value={selectedDesignerId || undefined} onValueChange={setSelectedDesignerId}>
+          <SelectTrigger id="designer-filter" style={{ minWidth: 280, padding: 8 }}>
+            <SelectValue placeholder="Select designer" />
+          </SelectTrigger>
+          <SelectContent className="max-h-72">
           {users.map((designer) => (
-            <option key={designer.id} value={designer.id}>
+            <SelectItem key={designer.id} value={String(designer.id)}>
               {designer.first_name || designer.last_name
                 ? `${designer.first_name} ${designer.last_name}`.trim()
                 : designer.email}
-            </option>
+            </SelectItem>
           ))}
-        </select>
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="panel">
@@ -100,7 +92,7 @@ export default function DesignerDashboard() {
                 <strong>{task.task_name}</strong>
                 <p>{task.client_name}</p>
               </div>
-              <span className="badge">{toStatusLabel(task.status)}</span>
+              <span className="badge">{toTaskTypeLabel(task)}</span>
             </div>
           ))
         )}

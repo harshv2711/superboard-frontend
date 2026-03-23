@@ -5,6 +5,7 @@ import "swiper/css";
 import "swiper/css/navigation";
 import "../account-planning-swiper.css";
 import { superboardApi } from "../api/superboardApi.js";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const dayShort = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -33,17 +34,6 @@ const indiaPublicHolidays2026 = {
   "25-12": "Christmas Day",
 };
 
-const taskStatusLabels = {
-  brief_received: "Brief Received",
-  ideation: "Ideation",
-  designing: "Designing",
-  internal_review: "Internal Review",
-  client_review: "Client Review",
-  revision: "Revision",
-  approved: "Approved",
-  published: "Published",
-};
-
 function formatDate(day, month, year) {
   return `${String(day).padStart(2, "0")}/${String(month + 1).padStart(2, "0")}/${year}`;
 }
@@ -55,16 +45,33 @@ function formatDateFromIso(isoString) {
   return `${String(date.getDate()).padStart(2, "0")}/${String(date.getMonth() + 1).padStart(2, "0")}/${date.getFullYear()}`;
 }
 
-function addDaysFromIso(isoString, daysToAdd) {
-  if (!isoString) return "-";
-  const date = new Date(isoString);
-  if (Number.isNaN(date.getTime())) return "-";
-  date.setDate(date.getDate() + daysToAdd);
-  return `${String(date.getDate()).padStart(2, "0")}/${String(date.getMonth() + 1).padStart(2, "0")}/${date.getFullYear()}`;
+function getTaskTypeLabel(task) {
+  if (task?.redo_of) return "Redo";
+  if (task?.revision_of) return "Revision";
+  return "Original";
 }
 
-function getStatusLabel(statusValue) {
-  return taskStatusLabels[statusValue] || statusValue || "Unknown";
+function getTaskDateParts(task) {
+  const rawValue = task?.created_at;
+  if (!rawValue) return null;
+
+  const rawText = String(rawValue);
+  const match = rawText.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) {
+    return {
+      year: Number(match[1]),
+      month: Number(match[2]) - 1,
+      day: Number(match[3]),
+    };
+  }
+
+  const parsedDate = new Date(rawValue);
+  if (Number.isNaN(parsedDate.getTime())) return null;
+  return {
+    year: parsedDate.getFullYear(),
+    month: parsedDate.getMonth(),
+    day: parsedDate.getDate(),
+  };
 }
 
 export default function AccountPlanningDashboard() {
@@ -87,7 +94,7 @@ export default function AccountPlanningDashboard() {
       try {
         const [clients, tasks] = await Promise.all([
           superboardApi.clients.listAll({ page_size: 200 }),
-          superboardApi.tasks.originalsAll({ page_size: 200 }),
+          superboardApi.tasks.listAll({ page_size: 200 }),
         ]);
 
         const clientsFromApi = clients.map((client) => client.name);
@@ -120,6 +127,34 @@ export default function AccountPlanningDashboard() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!allTasks.length) return;
+
+    const tasksForClient = allTasks.filter((task) => !selectedClient || task.client_name === selectedClient);
+    if (!tasksForClient.length) return;
+
+    const hasVisibleTask = tasksForClient.some((task) => {
+      const parts = getTaskDateParts(task);
+      return parts && parts.year === selectedYear && parts.month === selectedMonth;
+    });
+
+    if (hasVisibleTask) return;
+
+    const firstTaskWithDate = tasksForClient
+      .map((task) => ({ task, parts: getTaskDateParts(task) }))
+      .filter(({ parts }) => parts)
+      .sort((a, b) => {
+        const aTime = new Date(a.parts.year, a.parts.month, a.parts.day).getTime();
+        const bTime = new Date(b.parts.year, b.parts.month, b.parts.day).getTime();
+        return aTime - bTime;
+      })[0];
+
+    if (!firstTaskWithDate) return;
+
+    setSelectedYear(firstTaskWithDate.parts.year);
+    setSelectedMonth(firstTaskWithDate.parts.month);
+  }, [allTasks, selectedClient, selectedMonth, selectedYear]);
+
   const clientWiseTasks = useMemo(() => {
     const groupedByClient = allTasks.reduce((acc, task) => {
       const clientName = task.client_name || "Unknown Client";
@@ -136,7 +171,7 @@ export default function AccountPlanningDashboard() {
     return Object.values(groupedByClient)
       .map((group) => ({
         ...group,
-        tasks: group.tasks.sort((a, b) => new Date(b.given_at) - new Date(a.given_at)),
+        tasks: group.tasks.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
       }))
       .sort((a, b) => b.tasks.length - a.tasks.length || a.clientName.localeCompare(b.clientName));
   }, [allTasks]);
@@ -154,12 +189,12 @@ export default function AccountPlanningDashboard() {
       const tasksForDay = allTasks
         .filter((task) => {
           if (!selectedClient || task.client_name !== selectedClient) return false;
-          const givenDate = new Date(task.given_at);
+          const targetDate = new Date(task.created_at);
           return (
-            !Number.isNaN(givenDate.getTime()) &&
-            givenDate.getFullYear() === selectedYear &&
-            givenDate.getMonth() === selectedMonth &&
-            givenDate.getDate() === day
+            !Number.isNaN(targetDate.getTime()) &&
+            targetDate.getFullYear() === selectedYear &&
+            targetDate.getMonth() === selectedMonth &&
+            targetDate.getDate() === day
           );
         })
         .map((task) => ({
@@ -167,12 +202,9 @@ export default function AccountPlanningDashboard() {
           client: task.client_name,
           name: task.task_name,
           instruction: task.instructions,
-          statusLabel: getStatusLabel(task.status),
-          points: task.points,
+          statusLabel: getTaskTypeLabel(task),
           designerName: task.designer_name || "Unassigned",
-          givenAt: formatDateFromIso(task.given_at),
-          submittedAt: formatDateFromIso(task.submitted_at),
-          dueAt: addDaysFromIso(task.given_at, 2),
+          targetDate: formatDateFromIso(task.created_at),
         }));
 
       return { day, weekDay, holidayName, tasks: tasksForDay, totalDays };
@@ -214,7 +246,7 @@ export default function AccountPlanningDashboard() {
                     {group.tasks.slice(0, 4).map((task) => (
                       <li key={task.id}>
                         <p className="ap2-client-wise-task">{task.task_name}</p>
-                        <span>{getStatusLabel(task.status)}</span>
+                        <span>{getTaskTypeLabel(task)}</span>
                       </li>
                     ))}
                   </ul>
@@ -226,27 +258,42 @@ export default function AccountPlanningDashboard() {
 
         <div className="ap2-month-header">
           <div className="ap2-calendar-controls">
-            <select value={selectedClient} onChange={(e) => setSelectedClient(e.target.value)} aria-label="Select client">
+            <Select value={selectedClient} onValueChange={setSelectedClient}>
+              <SelectTrigger aria-label="Select client" className="w-[220px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="max-h-72">
               {allClients.map((client) => (
-                <option key={client} value={client}>
+                <SelectItem key={client} value={client}>
                   {client}
-                </option>
+                </SelectItem>
               ))}
-            </select>
-            <select value={selectedMonth} onChange={(e) => setSelectedMonth(Number(e.target.value))} aria-label="Select month">
+              </SelectContent>
+            </Select>
+            <Select value={String(selectedMonth)} onValueChange={(value) => setSelectedMonth(Number(value))}>
+              <SelectTrigger aria-label="Select month" className="w-[180px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="max-h-72">
               {monthNames.map((month, idx) => (
-                <option key={month} value={idx}>
+                <SelectItem key={month} value={String(idx)}>
                   {month}
-                </option>
+                </SelectItem>
               ))}
-            </select>
-            <select value={selectedYear} onChange={(e) => setSelectedYear(Number(e.target.value))} aria-label="Select year">
+              </SelectContent>
+            </Select>
+            <Select value={String(selectedYear)} onValueChange={(value) => setSelectedYear(Number(value))}>
+              <SelectTrigger aria-label="Select year" className="w-[140px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="max-h-72">
               {Array.from({ length: yearEnd - yearStart + 1 }, (_, idx) => yearStart + idx).map((year) => (
-                <option key={year} value={year}>
+                <SelectItem key={year} value={String(year)}>
                   {year}
-                </option>
+                </SelectItem>
               ))}
-            </select>
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="ap2-calendar-nav">
@@ -309,34 +356,32 @@ export default function AccountPlanningDashboard() {
                       <div className="ap2-task-footer-row">
                         <div className="ap2-button-wrapper">
                           <label>Status</label>
-                          <select defaultValue={task.statusLabel}>
-                            <option>{task.statusLabel}</option>
-                          </select>
+                          <Select value={task.statusLabel} disabled>
+                            <SelectTrigger className="w-[180px]">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-72">
+                              <SelectItem value={task.statusLabel}>{task.statusLabel}</SelectItem>
+                            </SelectContent>
+                          </Select>
                         </div>
                         <div className="ap2-button-wrapper">
                           <label>Client:</label>
-                          <select defaultValue={selectedClient}>
-                            <option>{selectedClient}</option>
-                          </select>
-                        </div>
-                        <div className="ap2-button-wrapper">
-                          <label>Points:</label>
-                          <p>{task.points}</p>
+                          <Select value={selectedClient} disabled>
+                            <SelectTrigger className="w-[180px]">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-72">
+                              <SelectItem value={selectedClient}>{selectedClient}</SelectItem>
+                            </SelectContent>
+                          </Select>
                         </div>
                       </div>
 
                       <div className="ap2-task-footer-row">
                         <div className="ap2-button-wrapper">
-                          <label>Given at:</label>
-                          <p>{task.givenAt}</p>
-                        </div>
-                        <div className="ap2-button-wrapper">
-                          <label>Submitted at:</label>
-                          <p>{task.submittedAt}</p>
-                        </div>
-                        <div className="ap2-button-wrapper">
-                          <label>Due at:</label>
-                          <p>{task.dueAt}</p>
+                          <label>Target date:</label>
+                          <p>{task.targetDate}</p>
                         </div>
                       </div>
                     </div>
