@@ -81,6 +81,20 @@ const data = {
         <ClipboardListIcon />
       ),
     },
+    {
+      name: "Designer KPI",
+      url: "/reports/designer-kpi",
+      icon: (
+        <ClipboardListIcon />
+      ),
+    },
+    {
+      name: "Brand KPI",
+      url: "/reports/brand-kpi",
+      icon: (
+        <ClipboardListIcon />
+      ),
+    },
   ],
 }
 
@@ -162,6 +176,14 @@ export function AppSidebar({
   const navMainItems = useMemo(() => getNavMainForRole(user.role), [user.role]);
   const documentItems = useMemo(() => {
     if (user.role === "designer") return [];
+    if (user.role === "account_planner") {
+      return data.documents.filter(
+        (item) => item.url !== "/reports/designer-kpi" && item.url !== "/reports/brand-kpi",
+      );
+    }
+    if (user.role !== "superuser") {
+      return data.documents.filter((item) => item.url !== "/reports/brand-kpi");
+    }
     return data.documents;
   }, [user.role]);
 

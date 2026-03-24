@@ -1,6 +1,7 @@
 "use client";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin"
+import { $getRoot } from "lexical";
 
 import { editorTheme } from "@/components/editor/themes/editor-theme"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -21,10 +22,11 @@ export function Editor({
   editorState,
   editorSerializedState,
   onChange,
-  onSerializedChange
+  onSerializedChange,
+  onPlainTextChange,
 }) {
   return (
-    <div className="bg-background overflow-hidden rounded-lg border shadow">
+    <div className="overflow-hidden rounded-xl border border-border bg-background shadow-sm">
       <LexicalComposer
         initialConfig={{
           ...editorConfig,
@@ -41,6 +43,11 @@ export function Editor({
             onChange={(editorState) => {
               onChange?.(editorState)
               onSerializedChange?.(editorState.toJSON())
+              if (onPlainTextChange) {
+                editorState.read(() => {
+                  onPlainTextChange($getRoot().getTextContent())
+                })
+              }
             }} />
         </TooltipProvider>
       </LexicalComposer>

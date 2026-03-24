@@ -102,6 +102,14 @@ function getDeliverableTypeOfWorkDisplay(scope) {
   return getDeliverableName(scope);
 }
 
+function getDeliverableTypeOfWorkItems(scope) {
+  if (Array.isArray(scope.type_of_work_names) && scope.type_of_work_names.length > 0) {
+    return scope.type_of_work_names.filter(Boolean);
+  }
+  const deliverableName = getDeliverableName(scope);
+  return deliverableName ? [deliverableName] : [];
+}
+
 function getUnit(scope) {
   return scope.totalUnit ?? scope.total_unit ?? scope.monthly_unit ?? scope.monthlyUnit ?? scope.unit_per_month ?? scope.unit ?? "-";
 }
@@ -167,6 +175,7 @@ function toClientForm(client) {
       client?.clientInterfaceContactNumber || client?.client_interface_contact_number || client?.contact_number || "",
     logo: null,
     logoUrl: getClientLogo(client),
+    removeLogo: false,
     attachmentFiles: [],
     attachments: [],
     accentColor: getClientAccentColor(client) || "#111827",
@@ -192,7 +201,6 @@ const EMPTY_SERVICE_CATEGORY_FORM = {
 
 const EMPTY_TYPE_OF_WORK_FORM = {
   workTypeName: "",
-  point: "",
 };
 
 export default function ClientsPage() {
@@ -472,6 +480,8 @@ export default function ClientsPage() {
       });
       if (clientForm.logo instanceof File) {
         formData.append("logo", clientForm.logo);
+      } else if (clientForm.removeLogo) {
+        formData.append("logo", "");
       }
 
       let savedClientId = clientForm.id;
@@ -693,15 +703,10 @@ export default function ClientsPage() {
 
   async function handleCreateTypeOfWork() {
     const workTypeName = inlineTypeOfWorkForm.workTypeName.trim();
-    const point = inlineTypeOfWorkForm.point.trim();
+    const point = 0.5;
 
     if (!workTypeName) {
       toast.error("Work type name is required.");
-      return;
-    }
-
-    if (!point) {
-      toast.error("Point is required.");
       return;
     }
 
@@ -709,7 +714,7 @@ export default function ClientsPage() {
     try {
       const created = await superboardApi.typeOfWork.create({
         work_type_name: workTypeName,
-        point: Number(point),
+        point,
       });
       const allTypeOfWork = await superboardApi.typeOfWork.listAll({ page_size: 300 });
       setTypeOfWorkOptions(allTypeOfWork);
@@ -847,7 +852,7 @@ export default function ClientsPage() {
             </div>
 
             <Sheet open={drawerOpen} onOpenChange={handleDrawerOpenChange}>
-              <SheetContent side="right" className="w-full sm:max-w-xl">
+              <SheetContent side="right" className="w-full sm:max-w-[900px]">
                 <SheetHeader>
                   <SheetTitle>
                     {drawerMode === "create-client" && "Create client"}
@@ -904,15 +909,36 @@ export default function ClientsPage() {
                             setClientForm((prev) => ({
                               ...prev,
                               logo: event.target.files?.[0] || null,
+                              logoUrl: event.target.files?.[0] ? URL.createObjectURL(event.target.files[0]) : prev.logoUrl,
+                              removeLogo: false,
                             }))
                           }
                         />
                         {clientForm.logoUrl ? (
-                          <img
-                            src={clientForm.logoUrl}
-                            alt={`${clientForm.name || "Client"} logo`}
-                            className="h-20 w-20 rounded-xl border border-border object-contain bg-background p-2"
-                          />
+                          <div className="relative inline-flex">
+                            <img
+                              src={clientForm.logoUrl}
+                              alt={`${clientForm.name || "Client"} logo`}
+                              className="h-20 w-20 rounded-xl border border-border object-contain bg-background p-2"
+                            />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="absolute -right-2 -top-2 h-8 w-8 rounded-full border border-border bg-background text-muted-foreground shadow-sm hover:bg-destructive/10 hover:text-destructive"
+                              onClick={() =>
+                                setClientForm((prev) => ({
+                                  ...prev,
+                                  logo: null,
+                                  logoUrl: "",
+                                  removeLogo: true,
+                                }))
+                              }
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              <span className="sr-only">Delete client logo</span>
+                            </Button>
+                          </div>
                         ) : null}
                       </div>
                       <div className="space-y-2">
@@ -1252,22 +1278,6 @@ export default function ClientsPage() {
                                   className="h-11"
                                 />
                               </div>
-                              <div className="space-y-2">
-                                <Label htmlFor="inline-scope-type-of-work-point" className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                                  Point
-                                </Label>
-                                <Input
-                                  id="inline-scope-type-of-work-point"
-                                  type="number"
-                                  step="any"
-                                  value={inlineTypeOfWorkForm.point}
-                                  onChange={(event) =>
-                                    setInlineTypeOfWorkForm((prev) => ({ ...prev, point: event.target.value }))
-                                  }
-                                  placeholder="0"
-                                  className="h-11"
-                                />
-                              </div>
                             </div>
                             <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                               <Button
@@ -1535,10 +1545,6 @@ export default function ClientsPage() {
                                               <span className="inline-flex rounded-full border border-border/70 bg-muted/40 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                                                 Scope Of Work
                                               </span>
-                                              <div className="inline-flex w-fit items-center gap-2 rounded-full border border-border/70 bg-background px-3 py-1.5 shadow-sm">
-                                                <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Total monthly unit</span>
-                                                <span className="text-sm font-semibold text-foreground">{getUnit(scope)}</span>
-                                              </div>
                                             </div>
                                             {canManageClient(client) ? (
                                               <Button
@@ -1556,17 +1562,31 @@ export default function ClientsPage() {
                                         <CardContent className="grid gap-3 p-4 pt-0 text-sm">
                                           <div className="rounded-2xl border border-border/60 bg-muted/30 px-4 py-3.5">
                                             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                                              Deliverable/ Type of work
+                                              Service Category
                                             </p>
                                             <p className="mt-2 text-[1rem] font-medium text-foreground">
-                                              {getDeliverableTypeOfWorkDisplay(scope) || "-"}
+                                              {getServiceCategory(scope)}
                                             </p>
                                           </div>
                                           <div className="rounded-2xl border border-border/60 bg-muted/30 px-4 py-3.5">
                                             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                                              Service Category
+                                              Deliverable/ Type of work
                                             </p>
-                                            <p className="mt-2 text-[1rem] font-medium text-foreground">{getServiceCategory(scope)}</p>
+                                            {getDeliverableTypeOfWorkItems(scope).length > 0 ? (
+                                              <ul className="mt-2 space-y-1 text-[1rem] font-medium text-foreground">
+                                                {getDeliverableTypeOfWorkItems(scope).map((item, index) => (
+                                                  <li key={`${String(scope.id ?? getScopeLabel(scope))}-${index}`}>{item}</li>
+                                                ))}
+                                              </ul>
+                                            ) : (
+                                              <p className="mt-2 text-[1rem] font-medium text-foreground">-</p>
+                                            )}
+                                          </div>
+                                          <div className="rounded-2xl border border-border/60 bg-muted/30 px-4 py-3.5">
+                                            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                                              Total monthly unit
+                                            </p>
+                                            <p className="mt-2 text-[1rem] font-medium text-foreground">{getUnit(scope)}</p>
                                           </div>
                                           <div className="rounded-2xl border border-border/60 bg-muted/30 px-4 py-3.5">
                                             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">

@@ -2,8 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { superboardApi } from "../api/superboardApi.js";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-const roleDesigner = "designer";
-
 function toTaskTypeLabel(task) {
   if (task?.redo_of) return "Redo";
   if (task?.revision_of) return "Revision";
@@ -23,18 +21,16 @@ export default function DesignerDashboard() {
       setError("");
       try {
         const [allUsers, allTasks] = await Promise.all([
-          superboardApi.users.listAll({ page_size: 200 }),
+          superboardApi.designers.listAll({ page_size: 200 }),
           superboardApi.tasks.originalsAll({ page_size: 200 }),
         ]);
 
-        const designers = allUsers.filter((user) => user.role === roleDesigner);
-
         if (!cancelled) {
-          setUsers(designers);
+          setUsers(allUsers);
           setTasks(allTasks);
           setSelectedDesignerId((prev) => {
-            if (prev && designers.some((designer) => String(designer.id) === prev)) return prev;
-            return designers[0] ? String(designers[0].id) : "";
+            if (prev && allUsers.some((designer) => String(designer.id) === prev)) return prev;
+            return allUsers[0] ? String(allUsers[0].id) : "";
           });
         }
       } catch (loadError) {

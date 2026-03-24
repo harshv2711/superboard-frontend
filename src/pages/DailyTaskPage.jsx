@@ -1,6 +1,7 @@
 import { superboardApi } from "@/api/superboardApi";
 import { AppSidebar } from "@/components/app-sidebar";
 import { Badge } from "@/components/ui/badge";
+import { Editor } from "@/components/blocks/editor-00/editor";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,9 +13,11 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Check, ChevronDown, Filter, Pencil, Plus, Search, X } from "lucide-react";
+import { Check, ChevronDown, Download, Filter, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
 
 const TASK_PRIORITY_LABELS = {
   high: "High",
@@ -29,6 +32,25 @@ const TASK_PRIORITY_BADGE_STYLES = {
 };
 
 const EXCELLENCE_OPTIONS = Array.from({ length: 20 }, (_, index) => ((index + 1) * 0.5).toFixed(1));
+const EMPTY_EDITOR_STATE = {
+  root: {
+    children: [
+      {
+        children: [],
+        direction: null,
+        format: "",
+        indent: 0,
+        type: "paragraph",
+        version: 1,
+      },
+    ],
+    direction: null,
+    format: "",
+    indent: 0,
+    type: "root",
+    version: 1,
+  },
+};
 
 const EMPTY_TASK_FORM = {
   id: null,
@@ -36,24 +58,76 @@ const EMPTY_TASK_FORM = {
   scopeOfWorkId: "",
   revisionOfId: "",
   redoOfId: "",
+  revisionType: "",
   taskName: "",
   instructions: "",
+  instructionsSerialized: EMPTY_EDITOR_STATE,
   instructionsByArtDirector: "",
+  instructionsByArtDirectorSerialized: EMPTY_EDITOR_STATE,
   priority: "medium",
   designerId: "",
   typeOfWorkId: "",
+  slides: "1",
   targetDate: new Date().toISOString().slice(0, 10),
   excellence: "",
+  excellenceReason: "",
   isMarkedCompletedBySuperadmin: false,
   isMarkedCompletedByAccountPlanner: false,
   isMarkedCompletedByArtDirector: false,
   isMarkedCompletedByDesigner: false,
+  haveMajorChanges: false,
+  haveMinorChanges: false,
+  negativeRemarkIds: [],
+  negativeRemarkLinks: [],
+  attachments: [],
+  attachmentFiles: [],
 };
 
 const EMPTY_INLINE_TYPE_OF_WORK_FORM = {
   workTypeName: "",
   point: "",
 };
+
+function getEmptyInlineTypeOfWorkForm(isAccountPlanner = false) {
+  return {
+    workTypeName: "",
+    point: isAccountPlanner ? "0.5" : "",
+  };
+}
+
+function createSerializedFromText(text) {
+  return {
+    root: {
+      children: [
+        {
+          children: text
+            ? [
+                {
+                  detail: 0,
+                  format: 0,
+                  mode: "normal",
+                  style: "",
+                  text,
+                  type: "text",
+                  version: 1,
+                },
+              ]
+            : [],
+          direction: null,
+          format: "",
+          indent: 0,
+          type: "paragraph",
+          version: 1,
+        },
+      ],
+      direction: null,
+      format: "",
+      indent: 0,
+      type: "root",
+      version: 1,
+    },
+  };
+}
 
 function getClientName(client) {
   return client.name || client.client_name || client.title || `Client #${client.id}`;
@@ -76,6 +150,35 @@ function getTaskPriority(task) {
 function getTaskPriorityBadgeClass(task) {
   const rawPriority = task?.priority || "";
   return TASK_PRIORITY_BADGE_STYLES[rawPriority] || "border-border bg-background text-foreground";
+}
+
+function getAttachmentUrl(attachment) {
+  const file = attachment?.file_url || attachment?.file || "";
+  if (!file) return "";
+  if (file.startsWith("http://") || file.startsWith("https://")) return file;
+  return `${API_BASE_URL}${file.startsWith("/") ? file : `/${file}`}`;
+}
+
+function getAttachmentName(attachment) {
+  const file = attachment?.file_url || attachment?.file || "";
+  if (!file) return "Attachment";
+  return String(file).split("/").pop() || "Attachment";
+}
+
+function truncateFileName(name, maxLength = 32) {
+  const value = String(name || "");
+  if (value.length <= maxLength) return value;
+  const extensionIndex = value.lastIndexOf(".");
+  const extension = extensionIndex > 0 ? value.slice(extensionIndex) : "";
+  const baseName = extension ? value.slice(0, extensionIndex) : value;
+  const available = Math.max(8, maxLength - extension.length - 3);
+  return `${baseName.slice(0, available)}...${extension}`;
+}
+
+function formatRemarkPoint(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "";
+  return Number.isInteger(numeric) ? String(numeric) : numeric.toFixed(2).replace(/\.?0+$/, "");
 }
 
 function getOriginalTaskId(task) {
@@ -142,6 +245,38 @@ function getScopeOfWorkLabel(scope) {
   return scope?.service_category_name || scope?.serviceCategoryName || scope?.deliverable_name || `Scope #${scope?.id}`;
 }
 
+function getScopeOfWorkIdValue(value) {
+  const rawValue = value?.scope_of_work ?? value?.scopeOfWork ?? value?.scope_of_work_id ?? value?.scopeOfWorkId ?? value;
+  if (!rawValue) return "";
+  if (typeof rawValue === "object") return rawValue?.id ? String(rawValue.id) : "";
+  return String(rawValue);
+}
+
+function resolveScopeOfWorkId(task, scopeOptions = []) {
+  const directId = getScopeOfWorkIdValue(task);
+  if (directId) return directId;
+
+  const clientId = String(task?.client || task?.client_id || "");
+  const scopeName = String(task?.scope_of_work_name || task?.scopeOfWorkName || "").trim().toLowerCase();
+  const serviceCategoryName = String(task?.service_category_name || task?.serviceCategoryName || "").trim().toLowerCase();
+
+  const matchingScope = scopeOptions.find((scope) => {
+    const scopeClientId = String(scope?.client || scope?.client_id || "");
+    if (clientId && scopeClientId !== clientId) return false;
+
+    const deliverableName = String(scope?.deliverable_name || "").trim().toLowerCase();
+    const scopeServiceCategoryName = String(scope?.service_category_name || scope?.serviceCategoryName || "").trim().toLowerCase();
+
+    if (scopeName && deliverableName === scopeName) return true;
+    if (scopeName && serviceCategoryName) {
+      return deliverableName === scopeName && scopeServiceCategoryName === serviceCategoryName;
+    }
+    return false;
+  });
+
+  return matchingScope?.id ? String(matchingScope.id) : "";
+}
+
 function getTaskType(task) {
   if (task?.revision_of) return "revision";
   if (task?.redo_of) return "redo";
@@ -160,8 +295,6 @@ function isTaskCompleted(task) {
 }
 
 function getTaskStartDateKey(task) {
-  const targetDate = String(task?.target_date || "").slice(0, 10);
-  if (targetDate) return targetDate;
   return String(task?.created_at || "").slice(0, 10);
 }
 
@@ -190,7 +323,7 @@ function formatDateTime(isoDate) {
   }).format(date);
 }
 
-function TaskHistoryDrawer({ open, onOpenChange, task, items }) {
+function TaskHistoryDrawer({ open, onOpenChange, task, items, canDeleteItem, deletingTaskId, onDeleteItem }) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="flex h-full !w-full flex-col overflow-hidden p-0 sm:!w-[40vw] sm:!max-w-[900px]">
@@ -217,17 +350,32 @@ function TaskHistoryDrawer({ open, onOpenChange, task, items }) {
                     className={`rounded-3xl border px-5 py-4 shadow-sm ${
                       item.isSelected ? "border-primary/40 bg-primary/5" : "border-border bg-card"
                     }`}>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant={item.isSelected ? "default" : "secondary"} className="rounded-full px-3 py-1">
-                        {item.kind}
-                      </Badge>
-                      <Badge variant="outline" className="rounded-full px-3 py-1">
-                        {item.client_name || "-"}
-                      </Badge>
-                      {item.isSelected ? (
-                        <Badge variant="outline" className="rounded-full border-primary/40 px-3 py-1 text-primary">
-                          Selected task
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant={item.isSelected ? "default" : "secondary"} className="rounded-full px-3 py-1">
+                          {item.kind}
                         </Badge>
+                        <Badge variant="outline" className="rounded-full px-3 py-1">
+                          {item.client_name || "-"}
+                        </Badge>
+                        {item.isSelected ? (
+                          <Badge variant="outline" className="rounded-full border-primary/40 px-3 py-1 text-primary">
+                            Selected task
+                          </Badge>
+                        ) : null}
+                      </div>
+                      {canDeleteItem?.(item) ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-9 w-9 shrink-0 rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                          onClick={() => onDeleteItem?.(item.id)}
+                          disabled={deletingTaskId === String(item.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          <span className="sr-only">Delete task</span>
+                        </Button>
                       ) : null}
                     </div>
                     <div className="mt-3">
@@ -271,6 +419,8 @@ function TaskHistoryDrawer({ open, onOpenChange, task, items }) {
 
 function TaskCard({
   task,
+  attachments,
+  negativeRemarkLinks,
   isAccountPlanner,
   isArtDirector,
   isDesigner,
@@ -321,14 +471,22 @@ function TaskCard({
         </div>
         <div className="grid gap-3 text-sm">
           <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Instructions</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Instructions/ Brief by Brand</p>
             <p className="mt-2 font-medium text-foreground">{task.instructions || "No instructions added."}</p>
           </div>
-          <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Instructions By Art Director</p>
-            <p className="mt-2 font-medium text-foreground">{task.InstructionsByArtDirector || "-"}</p>
-          </div>
-          {(isArtDirector || !isAccountPlanner) ? (
+          {!isAccountPlanner ? (
+            <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Instructions By Art Director</p>
+              <p className="mt-2 font-medium text-foreground">{task.InstructionsByArtDirector || "-"}</p>
+            </div>
+          ) : null}
+          {!isAccountPlanner && !isDesigner && task.excellence_reason ? (
+            <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Excellence Reason</p>
+              <p className="mt-2 font-medium text-foreground">{task.excellence_reason}</p>
+            </div>
+          ) : null}
+          {!isDesigner && (isArtDirector || !isAccountPlanner) ? (
             <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
               <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Designer</p>
               {isArtDirector ? (
@@ -388,6 +546,42 @@ function TaskCard({
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Updated At</p>
             <p className="mt-2 font-medium text-foreground">{formatTimestamp(task.updated_at)}</p>
           </div>
+          {attachments.length > 0 ? (
+            <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Attachments</p>
+              <div className="mt-2 space-y-2">
+                {attachments.map((attachment) => (
+                  <div key={String(attachment.id)} className="flex items-center gap-2 rounded-lg border border-border/60 bg-background px-3 py-2">
+                    <div className="min-w-0 flex-1 overflow-hidden">
+                      <span className="block truncate text-sm font-medium text-foreground">{truncateFileName(getAttachmentName(attachment))}</span>
+                    </div>
+                    <a
+                      href={getAttachmentUrl(attachment)}
+                      download
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label={`Download ${getAttachmentName(attachment)}`}
+                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border text-foreground transition hover:bg-muted">
+                      <Download className="h-3.5 w-3.5" />
+                    </a>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {!isAccountPlanner && !isDesigner && negativeRemarkLinks.length > 0 ? (
+            <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Negative Remarks</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {negativeRemarkLinks.map((link) => (
+                  <Badge key={String(link.id)} variant="outline" className="rounded-full px-3 py-1 text-xs">
+                    {link.negative_remark_name}
+                    {link.point !== undefined && link.point !== null ? ` (${formatRemarkPoint(link.point)})` : ""}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
         {canEdit || canManageTaskFlow || hasHistory ? (
           <div className="flex flex-wrap gap-2 pt-1">
@@ -416,34 +610,46 @@ function TaskCard({
 export default function DailyTaskPage() {
   const todayKey = new Date().toISOString().slice(0, 10);
   const clientFilterRef = useRef(null);
+  const designerFilterRef = useRef(null);
   const [currentUser, setCurrentUser] = useState(null);
   const [clients, setClients] = useState([]);
   const [users, setUsers] = useState([]);
   const [scopeOfWorkOptions, setScopeOfWorkOptions] = useState([]);
   const [typeOfWorkOptions, setTypeOfWorkOptions] = useState([]);
+  const [negativeRemarkOptions, setNegativeRemarkOptions] = useState([]);
   const [tasks, setTasks] = useState([]);
+  const [taskAttachments, setTaskAttachments] = useState([]);
+  const [negativeRemarkLinks, setNegativeRemarkLinks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState("create");
   const [savingTask, setSavingTask] = useState(false);
   const [deletingTask, setDeletingTask] = useState(false);
+  const [deletingHistoryTaskId, setDeletingHistoryTaskId] = useState(null);
   const [taskForm, setTaskForm] = useState(EMPTY_TASK_FORM);
   const [inlineTypeOfWorkOpen, setInlineTypeOfWorkOpen] = useState(false);
   const [inlineTypeOfWorkForm, setInlineTypeOfWorkForm] = useState(EMPTY_INLINE_TYPE_OF_WORK_FORM);
   const [savingInlineTypeOfWork, setSavingInlineTypeOfWork] = useState(false);
   const [assigningDesignerTaskId, setAssigningDesignerTaskId] = useState(null);
   const [updatingDesignerCompletionTaskId, setUpdatingDesignerCompletionTaskId] = useState(null);
+  const [deletingTaskAttachmentId, setDeletingTaskAttachmentId] = useState(null);
   const [reloadTick, setReloadTick] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedClientIds, setSelectedClientIds] = useState([]);
+  const [selectedDesignerIds, setSelectedDesignerIds] = useState([]);
   const [clientFilterOpen, setClientFilterOpen] = useState(false);
   const [clientFilterQuery, setClientFilterQuery] = useState("");
+  const [designerFilterOpen, setDesignerFilterOpen] = useState(false);
+  const [designerFilterQuery, setDesignerFilterQuery] = useState("");
   const [dateFrom, setDateFrom] = useState(todayKey);
   const [dateTo, setDateTo] = useState(todayKey);
+  const [targetDateFrom, setTargetDateFrom] = useState("");
+  const [targetDateTo, setTargetDateTo] = useState("");
   const [showOriginal, setShowOriginal] = useState(true);
   const [showRevision, setShowRevision] = useState(true);
   const [showRedo, setShowRedo] = useState(true);
+  const [showCompleted, setShowCompleted] = useState(false);
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyTaskId, setHistoryTaskId] = useState(null);
@@ -458,6 +664,7 @@ export default function DailyTaskPage() {
   const isReadOnlyTaskForm = isDesignerEditMode;
   const canManageTypeOfWork = Boolean(currentUserRole);
   const canViewPoints = !isAccountPlanner && !isArtDirector && !isDesigner;
+  const canEditExcellence = drawerMode === "edit" && (isArtDirector || isSuperuser);
   const accountPlannerCompletionBlocked =
     isAccountPlanner &&
     (!taskForm.isMarkedCompletedByArtDirector || !taskForm.isMarkedCompletedByDesigner);
@@ -482,12 +689,15 @@ export default function DailyTaskPage() {
         setLoading(true);
         setError("");
         const me = await superboardApi.auth.me();
-        const [allClients, allUsers, allScopeOfWork, allTypeOfWork, allTasks] = await Promise.all([
+        const [allClients, allUsers, allScopeOfWork, allTypeOfWork, allNegativeRemarks, allTasks, allTaskAttachments, allNegativeRemarkLinks] = await Promise.all([
           superboardApi.clients.listAll({ page_size: 300 }),
-          superboardApi.users.listAll({ page_size: 300 }),
+          superboardApi.designers.listAll({ page_size: 300 }),
           superboardApi.scopeOfWork.listAll({ page_size: 300 }),
           superboardApi.typeOfWork.listAll({ page_size: 300 }),
+          superboardApi.negativeRemarks.listAll({ page_size: 300 }),
           superboardApi.tasks.listAll({ page_size: 300 }),
+          superboardApi.taskAttachments.listAll({ page_size: 1000 }),
+          superboardApi.negativeRemarksOnTask.listAll({ page_size: 1000 }),
         ]);
 
         if (cancelled) return;
@@ -496,7 +706,10 @@ export default function DailyTaskPage() {
         setUsers(allUsers);
         setScopeOfWorkOptions(Array.isArray(allScopeOfWork) ? allScopeOfWork : []);
         setTypeOfWorkOptions(allTypeOfWork);
+        setNegativeRemarkOptions(Array.isArray(allNegativeRemarks) ? allNegativeRemarks : []);
         setTasks(allTasks);
+        setTaskAttachments(Array.isArray(allTaskAttachments) ? allTaskAttachments : []);
+        setNegativeRemarkLinks(Array.isArray(allNegativeRemarkLinks) ? allNegativeRemarkLinks : []);
       } catch (loadError) {
         if (cancelled) return;
         const message = loadError.message || "Failed to load daily tasks.";
@@ -517,6 +730,9 @@ export default function DailyTaskPage() {
     function handleClickOutside(event) {
       if (clientFilterRef.current && !clientFilterRef.current.contains(event.target)) {
         setClientFilterOpen(false);
+      }
+      if (designerFilterRef.current && !designerFilterRef.current.contains(event.target)) {
+        setDesignerFilterOpen(false);
       }
     }
 
@@ -577,16 +793,51 @@ export default function DailyTaskPage() {
     return clientOptions.filter((client) => selectedClientIds.includes(client.id));
   }, [clientOptions, selectedClientIds]);
 
+  const artDirectorDesignerOptions = useMemo(() => {
+    return designerOptions.map((designer) => ({
+      id: String(designer.id),
+      name: designer.email || designer.name || `Designer #${designer.id}`,
+    }));
+  }, [designerOptions]);
+
+  const selectedDesignerValues = useMemo(() => {
+    return artDirectorDesignerOptions.filter((designer) => selectedDesignerIds.includes(designer.id));
+  }, [artDirectorDesignerOptions, selectedDesignerIds]);
+
+  const attachmentsByTaskId = useMemo(() => {
+    return taskAttachments.reduce((accumulator, attachment) => {
+      const key = String(attachment.task || "");
+      if (!key) return accumulator;
+      if (!accumulator[key]) accumulator[key] = [];
+      accumulator[key].push(attachment);
+      return accumulator;
+    }, {});
+  }, [taskAttachments]);
+  const negativeRemarkLinksByTaskId = useMemo(() => {
+    return negativeRemarkLinks.reduce((accumulator, link) => {
+      const key = String(link.task || "");
+      if (!key) return accumulator;
+      if (!accumulator[key]) accumulator[key] = [];
+      accumulator[key].push(link);
+      return accumulator;
+    }, {});
+  }, [negativeRemarkLinks]);
+
   const visibleClientOptions = useMemo(() => {
     const query = clientFilterQuery.trim().toLowerCase();
     if (!query) return clientOptions;
     return clientOptions.filter((client) => client.name.toLowerCase().includes(query));
   }, [clientFilterQuery, clientOptions]);
 
+  const visibleDesignerOptions = useMemo(() => {
+    const query = designerFilterQuery.trim().toLowerCase();
+    if (!query) return artDirectorDesignerOptions;
+    return artDirectorDesignerOptions.filter((designer) => designer.name.toLowerCase().includes(query));
+  }, [artDirectorDesignerOptions, designerFilterQuery]);
+
   const allFilteredTasks = useMemo(() => {
     const effectiveDateFrom = dateFrom || todayKey;
     const effectiveDateTo = dateTo || todayKey;
-    const isSingleDayView = effectiveDateFrom === effectiveDateTo;
 
     return tasks
       .filter((task) => {
@@ -604,34 +855,30 @@ export default function DailyTaskPage() {
         if (selectedClientIds.length > 0) {
           if (!selectedClientIds.includes(String(task.client || ""))) return false;
         }
+        if (isArtDirector && selectedDesignerIds.length > 0) {
+          if (!selectedDesignerIds.includes(String(task.designer || ""))) return false;
+        }
 
         const taskType = getTaskType(task);
         if (taskType === "original" && !showOriginal) return false;
         if (taskType === "revision" && !showRevision) return false;
         if (taskType === "redo" && !showRedo) return false;
 
-        const taskStartDateKey = getTaskStartDateKey(task);
-        const taskCompletionDateKey = getTaskCompletionDateKey(task);
         const completed = isTaskCompleted(task);
+        if (completed && !showCompleted) return false;
 
-        if (isSingleDayView) {
-          if (completed) {
-            return taskCompletionDateKey === effectiveDateTo;
-          }
-          return Boolean(taskStartDateKey) && taskStartDateKey <= effectiveDateTo;
-        }
-
-        if (completed) {
-          if (!taskCompletionDateKey) return false;
-          if (effectiveDateFrom && taskCompletionDateKey < effectiveDateFrom) return false;
-          if (effectiveDateTo && taskCompletionDateKey > effectiveDateTo) return false;
-          return true;
-        }
-
+        const taskStartDateKey = getTaskStartDateKey(task);
         if (!taskStartDateKey) return false;
+        if (effectiveDateFrom && taskStartDateKey < effectiveDateFrom) return false;
         if (effectiveDateTo && taskStartDateKey > effectiveDateTo) return false;
-        return true;
 
+        const taskTargetDateKey = String(task.target_date || "").slice(0, 10);
+        if (targetDateFrom) {
+          if (!taskTargetDateKey || taskTargetDateKey < targetDateFrom) return false;
+        }
+        if (targetDateTo) {
+          if (!taskTargetDateKey || taskTargetDateKey > targetDateTo) return false;
+        }
         return true;
       })
       .sort((left, right) => {
@@ -647,8 +894,12 @@ export default function DailyTaskPage() {
     isArtDirector,
     isDesigner,
     isSuperuser,
+    selectedDesignerIds,
     selectedClientIds,
     searchQuery,
+    targetDateFrom,
+    targetDateTo,
+    showCompleted,
     showOriginal,
     showRedo,
     showRevision,
@@ -738,9 +989,13 @@ export default function DailyTaskPage() {
       ...EMPTY_TASK_FORM,
       clientId: String(allowedClients[0]?.id || ""),
       targetDate: todayKey,
+      negativeRemarkIds: [],
+      negativeRemarkLinks: [],
+      attachments: [],
+      attachmentFiles: [],
     });
     setInlineTypeOfWorkOpen(false);
-    setInlineTypeOfWorkForm(EMPTY_INLINE_TYPE_OF_WORK_FORM);
+    setInlineTypeOfWorkForm(getEmptyInlineTypeOfWorkForm(isAccountPlanner));
     setCreateOpen(true);
   }
 
@@ -754,27 +1009,38 @@ export default function DailyTaskPage() {
     setTaskForm({
       ...EMPTY_TASK_FORM,
       clientId: String(task.client || ""),
-      scopeOfWorkId: task.scope_of_work ? String(task.scope_of_work) : "",
+      scopeOfWorkId: resolveScopeOfWorkId(task, scopeOfWorkOptions),
       revisionOfId: getOriginalTaskId(task),
       redoOfId: "",
       taskName: task.task_name || "",
       instructions: task.instructions || "",
+      instructionsSerialized: createSerializedFromText(task.instructions || ""),
       instructionsByArtDirector: task.InstructionsByArtDirector || "",
+      instructionsByArtDirectorSerialized: createSerializedFromText(task.InstructionsByArtDirector || ""),
+      revisionType: task.revision_type || "",
       priority: task.priority || "medium",
       designerId: task.designer ? String(task.designer) : "",
       typeOfWorkId: task.type_of_work ? String(task.type_of_work) : "",
+      slides: task.slides === null || task.slides === undefined || task.slides === "" ? "1" : String(task.slides),
       targetDate: task.target_date || todayKey,
       excellence:
         task.excellence === null || task.excellence === undefined || task.excellence === ""
           ? ""
           : String(task.excellence),
+      excellenceReason: "",
       isMarkedCompletedBySuperadmin: false,
       isMarkedCompletedByAccountPlanner: false,
       isMarkedCompletedByArtDirector: false,
       isMarkedCompletedByDesigner: false,
+      haveMajorChanges: false,
+      haveMinorChanges: false,
+      negativeRemarkIds: [],
+      negativeRemarkLinks: [],
+      attachments: [],
+      attachmentFiles: [],
     });
     setInlineTypeOfWorkOpen(false);
-    setInlineTypeOfWorkForm(EMPTY_INLINE_TYPE_OF_WORK_FORM);
+    setInlineTypeOfWorkForm(getEmptyInlineTypeOfWorkForm(isAccountPlanner));
     setCreateOpen(true);
   }
 
@@ -788,67 +1054,135 @@ export default function DailyTaskPage() {
     setTaskForm({
       ...EMPTY_TASK_FORM,
       clientId: String(task.client || ""),
-      scopeOfWorkId: task.scope_of_work ? String(task.scope_of_work) : "",
+      scopeOfWorkId: resolveScopeOfWorkId(task, scopeOfWorkOptions),
       revisionOfId: "",
       redoOfId: getRedoTaskId(task),
       taskName: task.task_name || "",
       instructions: task.instructions || "",
+      instructionsSerialized: createSerializedFromText(task.instructions || ""),
       instructionsByArtDirector: task.InstructionsByArtDirector || "",
+      instructionsByArtDirectorSerialized: createSerializedFromText(task.InstructionsByArtDirector || ""),
+      revisionType: "",
       priority: task.priority || "medium",
       designerId: task.designer ? String(task.designer) : "",
       typeOfWorkId: task.type_of_work ? String(task.type_of_work) : "",
+      slides: task.slides === null || task.slides === undefined || task.slides === "" ? "1" : String(task.slides),
       targetDate: task.target_date || todayKey,
       excellence:
         task.excellence === null || task.excellence === undefined || task.excellence === ""
           ? ""
           : String(task.excellence),
+      excellenceReason: "",
       isMarkedCompletedBySuperadmin: false,
       isMarkedCompletedByAccountPlanner: false,
       isMarkedCompletedByArtDirector: false,
       isMarkedCompletedByDesigner: false,
+      haveMajorChanges: false,
+      haveMinorChanges: false,
+      negativeRemarkIds: [],
+      negativeRemarkLinks: [],
+      attachments: [],
+      attachmentFiles: [],
     });
     setInlineTypeOfWorkOpen(false);
-    setInlineTypeOfWorkForm(EMPTY_INLINE_TYPE_OF_WORK_FORM);
+    setInlineTypeOfWorkForm(getEmptyInlineTypeOfWorkForm(isAccountPlanner));
     setCreateOpen(true);
   }
 
-  function openEditTask(task) {
+  async function openEditTask(task) {
     if (!canOpenTaskEditor(task)) {
       toast.error("You do not have permission to edit this task.");
       return;
     }
 
     setDrawerMode("edit");
-    setTaskForm({
-      id: task.id,
-      clientId: String(task.client || ""),
-      scopeOfWorkId: task.scope_of_work ? String(task.scope_of_work) : "",
-      revisionOfId: task.revision_of ? String(task.revision_of) : "",
-      redoOfId: task.redo_of ? String(task.redo_of) : "",
-      taskName: task.task_name || "",
-      instructions: task.instructions || "",
-      instructionsByArtDirector: task.InstructionsByArtDirector || "",
-      priority: task.priority || "medium",
-      designerId: task.designer ? String(task.designer) : "",
-      typeOfWorkId: task.type_of_work ? String(task.type_of_work) : "",
-      targetDate: task.target_date || todayKey,
-      excellence:
-        task.excellence === null || task.excellence === undefined || task.excellence === ""
-          ? ""
-          : String(task.excellence),
-      isMarkedCompletedBySuperadmin: Boolean(task.is_marked_completed_by_superadmin),
-      isMarkedCompletedByAccountPlanner: Boolean(task.is_marked_completed_by_account_planner),
-      isMarkedCompletedByArtDirector: Boolean(task.is_marked_completed_by_art_director),
-      isMarkedCompletedByDesigner: Boolean(task.is_marked_completed_by_designer),
-    });
+    const existingRemarkLinks = negativeRemarkLinksByTaskId[String(task.id)] || [];
+    try {
+      const [retrievedTask, attachments] = await Promise.all([
+        superboardApi.tasks.retrieve(task.id),
+        superboardApi.taskAttachments.listAll({ task: task.id, page_size: 100 }),
+      ]);
+
+      setTaskForm({
+        id: retrievedTask.id,
+        clientId: String(retrievedTask.client || task.client || ""),
+        scopeOfWorkId: getScopeOfWorkIdValue(retrievedTask),
+        revisionOfId: retrievedTask.revision_of ? String(retrievedTask.revision_of) : "",
+        redoOfId: retrievedTask.redo_of ? String(retrievedTask.redo_of) : "",
+        taskName: retrievedTask.task_name || "",
+        instructions: retrievedTask.instructions || "",
+        instructionsSerialized: createSerializedFromText(retrievedTask.instructions || ""),
+        instructionsByArtDirector: retrievedTask.InstructionsByArtDirector || "",
+        instructionsByArtDirectorSerialized: createSerializedFromText(retrievedTask.InstructionsByArtDirector || ""),
+        revisionType: retrievedTask.revision_type || "",
+        priority: retrievedTask.priority || "medium",
+        designerId: retrievedTask.designer ? String(retrievedTask.designer) : "",
+        typeOfWorkId: retrievedTask.type_of_work ? String(retrievedTask.type_of_work) : "",
+        slides:
+          retrievedTask.slides === null || retrievedTask.slides === undefined || retrievedTask.slides === ""
+            ? "1"
+            : String(retrievedTask.slides),
+        targetDate: retrievedTask.target_date || todayKey,
+        excellence:
+          retrievedTask.excellence === null || retrievedTask.excellence === undefined || retrievedTask.excellence === ""
+            ? ""
+            : String(retrievedTask.excellence),
+        excellenceReason: retrievedTask.excellence_reason || "",
+        isMarkedCompletedBySuperadmin: Boolean(retrievedTask.is_marked_completed_by_superadmin),
+        isMarkedCompletedByAccountPlanner: Boolean(retrievedTask.is_marked_completed_by_account_planner),
+        isMarkedCompletedByArtDirector: Boolean(retrievedTask.is_marked_completed_by_art_director),
+        isMarkedCompletedByDesigner: Boolean(retrievedTask.is_marked_completed_by_designer),
+        haveMajorChanges: Boolean(retrievedTask.have_major_changes),
+        haveMinorChanges: Boolean(retrievedTask.have_minor_changes),
+        negativeRemarkIds: existingRemarkLinks.map((link) => String(link.negative_remark)),
+        negativeRemarkLinks: existingRemarkLinks,
+        attachments: Array.isArray(attachments) ? attachments : [],
+        attachmentFiles: [],
+      });
+    } catch (requestError) {
+      toast.error(requestError.message || "Failed to load task details.");
+      setTaskForm({
+        id: task.id,
+        clientId: String(task.client || ""),
+        scopeOfWorkId: resolveScopeOfWorkId(task, scopeOfWorkOptions),
+        revisionOfId: task.revision_of ? String(task.revision_of) : "",
+        redoOfId: task.redo_of ? String(task.redo_of) : "",
+        taskName: task.task_name || "",
+        instructions: task.instructions || "",
+        instructionsSerialized: createSerializedFromText(task.instructions || ""),
+        instructionsByArtDirector: task.InstructionsByArtDirector || "",
+        instructionsByArtDirectorSerialized: createSerializedFromText(task.InstructionsByArtDirector || ""),
+        revisionType: task.revision_type || "",
+        priority: task.priority || "medium",
+        designerId: task.designer ? String(task.designer) : "",
+        typeOfWorkId: task.type_of_work ? String(task.type_of_work) : "",
+        slides: task.slides === null || task.slides === undefined || task.slides === "" ? "1" : String(task.slides),
+        targetDate: task.target_date || todayKey,
+        excellence:
+          task.excellence === null || task.excellence === undefined || task.excellence === ""
+            ? ""
+            : String(task.excellence),
+        excellenceReason: task.excellence_reason || "",
+        isMarkedCompletedBySuperadmin: Boolean(task.is_marked_completed_by_superadmin),
+        isMarkedCompletedByAccountPlanner: Boolean(task.is_marked_completed_by_account_planner),
+        isMarkedCompletedByArtDirector: Boolean(task.is_marked_completed_by_art_director),
+        isMarkedCompletedByDesigner: Boolean(task.is_marked_completed_by_designer),
+        haveMajorChanges: Boolean(task.have_major_changes),
+        haveMinorChanges: Boolean(task.have_minor_changes),
+        negativeRemarkIds: existingRemarkLinks.map((link) => String(link.negative_remark)),
+        negativeRemarkLinks: existingRemarkLinks,
+        attachments: [],
+        attachmentFiles: [],
+      });
+    }
     setInlineTypeOfWorkOpen(false);
-    setInlineTypeOfWorkForm(EMPTY_INLINE_TYPE_OF_WORK_FORM);
+    setInlineTypeOfWorkForm(getEmptyInlineTypeOfWorkForm(isAccountPlanner));
     setCreateOpen(true);
   }
 
   async function handleCreateInlineTypeOfWork() {
     const workTypeName = inlineTypeOfWorkForm.workTypeName.trim();
-    const point = inlineTypeOfWorkForm.point.trim();
+    const point = isAccountPlanner ? "0.5" : inlineTypeOfWorkForm.point.trim();
 
     if (!workTypeName) {
       toast.error("Work type name is required.");
@@ -864,7 +1198,7 @@ export default function DailyTaskPage() {
       const allTypeOfWork = await superboardApi.typeOfWork.listAll({ page_size: 300 });
       setTypeOfWorkOptions(allTypeOfWork);
       setTaskForm((prev) => ({ ...prev, typeOfWorkId: String(created.id) }));
-      setInlineTypeOfWorkForm(EMPTY_INLINE_TYPE_OF_WORK_FORM);
+      setInlineTypeOfWorkForm(getEmptyInlineTypeOfWorkForm(isAccountPlanner));
       setInlineTypeOfWorkOpen(false);
       toast.success("Type of work created successfully.");
     } catch (requestError) {
@@ -886,9 +1220,19 @@ export default function DailyTaskPage() {
       toast.error("Task name is required.");
       return;
     }
+    if (!taskForm.scopeOfWorkId && !taskForm.revisionOfId && !taskForm.redoOfId) {
+      toast.error("Scope Of Work is required.");
+      return;
+    }
+    if (isRevisionTaskForm && !taskForm.haveMajorChanges && !taskForm.haveMinorChanges) {
+      toast.error("Revision changes are required.");
+      return;
+    }
 
     setSavingTask(true);
     try {
+      const isRevisionCreate = drawerMode !== "edit" && Boolean(taskForm.revisionOfId);
+      const isRedoCreate = drawerMode !== "edit" && Boolean(taskForm.redoOfId);
       const payload = {
         client: Number(taskForm.clientId),
         scope_of_work: taskForm.scopeOfWorkId ? Number(taskForm.scopeOfWorkId) : null,
@@ -896,6 +1240,8 @@ export default function DailyTaskPage() {
         instructions: taskForm.instructions,
         priority: taskForm.priority,
         type_of_work: taskForm.typeOfWorkId ? Number(taskForm.typeOfWorkId) : null,
+        slides: taskForm.slides ? Number(taskForm.slides) : 1,
+        revision_type: taskForm.revisionType || "",
         target_date: taskForm.targetDate || todayKey,
       };
 
@@ -915,8 +1261,14 @@ export default function DailyTaskPage() {
         payload.designer = taskForm.designerId ? Number(taskForm.designerId) : null;
       }
 
-      if (canViewPoints) {
+      if (canEditExcellence) {
         payload.excellence = taskForm.excellence ? Number(taskForm.excellence) : null;
+        payload.excellence_reason = taskForm.excellenceReason.trim() || null;
+      }
+
+      if (isRevisionTaskForm) {
+        payload.have_major_changes = taskForm.haveMajorChanges;
+        payload.have_minor_changes = taskForm.haveMinorChanges;
       }
 
       if (drawerMode === "edit") {
@@ -935,18 +1287,87 @@ export default function DailyTaskPage() {
       }
 
       if (drawerMode === "edit" && taskForm.id) {
-        await superboardApi.tasks.patch(taskForm.id, payload);
+        const updatedTask = await superboardApi.tasks.patch(taskForm.id, payload);
+        const taskId = updatedTask?.id || taskForm.id;
+        const selectedRemarkIds = new Set(taskForm.negativeRemarkIds.map(String));
+        const existingRemarkLinks = taskForm.negativeRemarkLinks || [];
+        await Promise.all(
+          existingRemarkLinks
+            .filter((link) => !selectedRemarkIds.has(String(link.negative_remark)))
+            .map((link) => superboardApi.negativeRemarksOnTask.remove(link.id)),
+        );
+        await Promise.all(
+          Array.from(selectedRemarkIds)
+            .filter((remarkId) => !existingRemarkLinks.some((link) => String(link.negative_remark) === String(remarkId)))
+            .map((remarkId) =>
+              superboardApi.negativeRemarksOnTask.create({
+                task: taskId,
+                negative_remark: Number(remarkId),
+              }),
+            ),
+        );
         toast.success("Task updated successfully.");
       } else {
-        await superboardApi.tasks.create(payload);
-        toast.success("Task created successfully.");
+        const createdTask = await superboardApi.tasks.create(payload);
+        const taskId = createdTask?.id;
+        if (taskForm.negativeRemarkIds.length > 0) {
+          await Promise.all(
+            taskForm.negativeRemarkIds.map((remarkId) =>
+              superboardApi.negativeRemarksOnTask.create({
+                task: taskId,
+                negative_remark: Number(remarkId),
+              }),
+            ),
+          );
+        }
+        if (taskForm.attachmentFiles.length > 0) {
+          await Promise.all(
+            taskForm.attachmentFiles.map(async (file) => {
+              const formData = new FormData();
+              formData.append("task", String(taskId));
+              formData.append("file", file);
+              await superboardApi.taskAttachments.create(formData);
+            }),
+          );
+        }
+        toast.success(
+          isRevisionCreate ? "Revision created successfully." : isRedoCreate ? "Redo created successfully." : "Task created successfully.",
+        );
+        if (taskForm.attachmentFiles.length > 0) {
+          toast.success(
+            taskForm.attachmentFiles.length === 1
+              ? "Task attachment uploaded successfully."
+              : `${taskForm.attachmentFiles.length} task attachments uploaded successfully.`,
+          );
+        }
+      }
+
+      if (drawerMode === "edit" && taskForm.id && taskForm.attachmentFiles.length > 0) {
+        await Promise.all(
+          taskForm.attachmentFiles.map(async (file) => {
+            const formData = new FormData();
+            formData.append("task", String(taskForm.id));
+            formData.append("file", file);
+            await superboardApi.taskAttachments.create(formData);
+          }),
+        );
+        toast.success(
+          taskForm.attachmentFiles.length === 1
+            ? "Task attachment uploaded successfully."
+            : `${taskForm.attachmentFiles.length} task attachments uploaded successfully.`,
+        );
       }
       setCreateOpen(false);
       setTaskForm(EMPTY_TASK_FORM);
       setDrawerMode("create");
       setReloadTick((value) => value + 1);
     } catch (requestError) {
-      toast.error(requestError.message || "Failed to create task.");
+      const isRevisionCreate = drawerMode !== "edit" && Boolean(taskForm.revisionOfId);
+      const isRedoCreate = drawerMode !== "edit" && Boolean(taskForm.redoOfId);
+      toast.error(
+        requestError.message ||
+          (isRevisionCreate ? "Failed to create revision." : isRedoCreate ? "Failed to create redo." : "Failed to create task."),
+      );
     } finally {
       setSavingTask(false);
     }
@@ -972,6 +1393,64 @@ export default function DailyTaskPage() {
       setDeletingTask(false);
     }
   }
+
+  async function handleDeleteHistoryTask(taskId) {
+    if (!taskId) return;
+    const task = taskById.get(String(taskId));
+    if (!task || !canEditTask(task)) return;
+
+    const confirmed = window.confirm("Delete this task? This action cannot be undone.");
+    if (!confirmed) return;
+
+    setDeletingTask(true);
+    setDeletingHistoryTaskId(String(taskId));
+    try {
+      await superboardApi.tasks.remove(taskId);
+      toast.success("Task deleted successfully.");
+      setHistoryOpen(false);
+      setHistoryTaskId(null);
+      setReloadTick((value) => value + 1);
+    } catch (requestError) {
+      toast.error(requestError.message || "Failed to delete task.");
+    } finally {
+      setDeletingTask(false);
+      setDeletingHistoryTaskId(null);
+    }
+  }
+
+  async function handleDeleteTaskAttachment(attachmentId) {
+    if (!attachmentId) return;
+    if (!window.confirm("Delete this attachment?")) return;
+
+    setDeletingTaskAttachmentId(String(attachmentId));
+    try {
+      await superboardApi.taskAttachments.remove(attachmentId);
+      setTaskForm((prev) => ({
+        ...prev,
+        attachments: prev.attachments.filter((attachment) => String(attachment.id) !== String(attachmentId)),
+      }));
+      toast.success("Attachment deleted successfully.");
+    } catch (requestError) {
+      toast.error(requestError.message || "Failed to delete attachment.");
+    } finally {
+      setDeletingTaskAttachmentId(null);
+    }
+  }
+
+  const isRevisionDrawer = drawerMode !== "edit" && Boolean(taskForm.revisionOfId);
+  const isRedoDrawer = drawerMode !== "edit" && Boolean(taskForm.redoOfId);
+  const isRevisionTaskForm = Boolean(taskForm.revisionOfId);
+  const canManageNegativeRemarks = drawerMode === "edit" && !isAccountPlanner && !isDesigner;
+  const drawerTitle = drawerMode === "edit" ? "Edit task" : isRevisionDrawer ? "Create Revision" : isRedoDrawer ? "Create Redo" : "Create task";
+  const drawerDescription =
+    drawerMode === "edit"
+      ? "Update the selected task."
+      : isRevisionDrawer
+        ? "Create a revision for the selected task."
+        : isRedoDrawer
+          ? "Create a redo for the selected task."
+          : "Create a new task for today.";
+  const drawerSubmitLabel = savingTask ? "Saving..." : isRevisionDrawer ? "Create Revision" : isRedoDrawer ? "Create Redo" : "Create task";
 
   async function handleAssignDesigner(task, designerId) {
     if (!isArtDirector || !task?.id) return;
@@ -1028,15 +1507,29 @@ export default function DailyTaskPage() {
     });
   }
 
+  function toggleDesignerFilter(designerId) {
+    setSelectedDesignerIds((prev) => {
+      if (prev.includes(designerId)) {
+        return prev.filter((value) => value !== designerId);
+      }
+      return [...prev, designerId];
+    });
+  }
+
   function resetFilters() {
     setSearchQuery("");
     setSelectedClientIds([]);
+    setSelectedDesignerIds([]);
     setClientFilterQuery("");
+    setDesignerFilterQuery("");
     setDateFrom("");
     setDateTo("");
+    setTargetDateFrom("");
+    setTargetDateTo("");
     setShowOriginal(true);
     setShowRevision(true);
     setShowRedo(true);
+    setShowCompleted(false);
   }
 
   function openTaskHistory(task) {
@@ -1057,36 +1550,16 @@ export default function DailyTaskPage() {
                   <Search className="h-4 w-4" />
                   Search & Filter
                 </Button>
-                <Button type="button" className="rounded-xl" onClick={openCreateTask} disabled={isDesigner || allowedClients.length === 0}>
-                  <Plus className="h-4 w-4" />
-                  Create Task
-                </Button>
+                {!isDesigner ? (
+                  <Button type="button" className="rounded-xl" onClick={openCreateTask} disabled={allowedClients.length === 0}>
+                    <Plus className="h-4 w-4" />
+                    Create Task
+                  </Button>
+                ) : null}
               </div>
             }
           />
           <div className="flex min-w-0 flex-1 flex-col overflow-x-hidden p-4 lg:p-6">
-            <div className="mb-6 flex items-center justify-between gap-3 rounded-2xl border border-border/80 bg-card px-4 py-3 shadow-sm">
-              <div className="flex items-center gap-2">
-                <Filter className="h-4 w-4 text-muted-foreground" />
-                <p className="text-sm text-muted-foreground">
-                  {allFilteredTasks.length} task(s) found
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {searchQuery ? <Badge variant="secondary" className="rounded-full px-3 py-1">{searchQuery}</Badge> : null}
-                {dateFrom ? <Badge variant="outline" className="rounded-full px-3 py-1">From {dateFrom}</Badge> : null}
-                {dateTo ? <Badge variant="outline" className="rounded-full px-3 py-1">To {dateTo}</Badge> : null}
-                {!showOriginal ? <Badge variant="outline" className="rounded-full px-3 py-1">Original hidden</Badge> : null}
-                {!showRevision ? <Badge variant="outline" className="rounded-full px-3 py-1">Revision hidden</Badge> : null}
-                {!showRedo ? <Badge variant="outline" className="rounded-full px-3 py-1">Redo hidden</Badge> : null}
-                {selectedClientValues.map((client) => (
-                  <Badge key={client.id} variant="secondary" className="rounded-full px-3 py-1">
-                    {client.name}
-                  </Badge>
-                ))}
-              </div>
-            </div>
-
             <section>
               {loading ? (
                 <Card className="rounded-[28px] border border-dashed border-border/80 bg-card/70 shadow-sm">
@@ -1115,6 +1588,8 @@ export default function DailyTaskPage() {
                     <TaskCard
                       key={String(task.id)}
                       task={task}
+                      attachments={attachmentsByTaskId[String(task.id)] || []}
+                      negativeRemarkLinks={negativeRemarkLinksByTaskId[String(task.id)] || []}
                       isAccountPlanner={isAccountPlanner}
                       isArtDirector={isArtDirector}
                       isDesigner={isDesigner}
@@ -1144,13 +1619,16 @@ export default function DailyTaskPage() {
               }}
               task={historyTask}
               items={historyItems}
+              canDeleteItem={canEditTask}
+              deletingTaskId={deletingHistoryTaskId}
+              onDeleteItem={handleDeleteHistoryTask}
             />
 
             <Sheet open={filterDrawerOpen} onOpenChange={setFilterDrawerOpen}>
-              <SheetContent side="right" className="flex h-full w-full flex-col overflow-hidden p-0 sm:max-w-xl">
+              <SheetContent side="right" className="flex h-full flex-col overflow-hidden p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-[768px]">
                 <SheetHeader className="border-b border-border px-6 py-6">
                   <SheetTitle>Search & Filter</SheetTitle>
-                  <SheetDescription>Refine the Daily Task list by name, client, date range, and task type.</SheetDescription>
+                  <SheetDescription>Refine the Daily Task list by name, client, designer, created date, target date, and task type.</SheetDescription>
                 </SheetHeader>
                 <div className="flex-1 overflow-y-auto px-6 py-6">
                   <div className="space-y-5 rounded-2xl border border-border/80 bg-card p-4 shadow-sm">
@@ -1257,10 +1735,97 @@ export default function DailyTaskPage() {
                       </div>
                     ) : null}
 
+                    {isArtDirector ? (
+                      <div className="space-y-2">
+                        <Label htmlFor="designer-filter" className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                          Filter by Designer
+                        </Label>
+                        <div className="relative" ref={designerFilterRef}>
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            className="flex min-h-11 w-full items-center justify-between rounded-xl border border-border bg-background px-4 py-3 text-left shadow-sm transition hover:bg-muted/40"
+                            onClick={() => setDesignerFilterOpen((open) => !open)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                setDesignerFilterOpen((open) => !open);
+                              }
+                            }}>
+                            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                              {selectedDesignerValues.length > 0 ? (
+                                selectedDesignerValues.map((designer) => (
+                                  <Badge key={designer.id} variant="secondary" className="h-8 rounded-full px-3 text-sm">
+                                    <span className="truncate max-w-44">{designer.name}</span>
+                                    <button
+                                      type="button"
+                                      className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground transition hover:text-foreground"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        toggleDesignerFilter(designer.id);
+                                      }}>
+                                      <X className="h-3 w-3" />
+                                    </button>
+                                  </Badge>
+                                ))
+                              ) : (
+                                <span className="text-sm text-muted-foreground">Select designers</span>
+                              )}
+                            </div>
+                            <ChevronDown
+                              className={`h-4 w-4 shrink-0 text-muted-foreground transition ${designerFilterOpen ? "rotate-180" : ""}`}
+                            />
+                          </div>
+
+                          {designerFilterOpen ? (
+                            <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-20 rounded-2xl border border-border bg-popover p-3 shadow-xl">
+                              <Input
+                                value={designerFilterQuery}
+                                onChange={(event) => setDesignerFilterQuery(event.target.value)}
+                                placeholder="Search designers..."
+                                className="h-10 rounded-lg"
+                              />
+                              <div className="mt-3 max-h-64 space-y-1 overflow-y-auto">
+                                {visibleDesignerOptions.length > 0 ? (
+                                  visibleDesignerOptions.map((designer) => {
+                                    const isChecked = selectedDesignerIds.includes(designer.id);
+                                    return (
+                                      <div
+                                        key={designer.id}
+                                        role="button"
+                                        tabIndex={0}
+                                        className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition hover:bg-muted"
+                                        onClick={() => toggleDesignerFilter(designer.id)}
+                                        onKeyDown={(event) => {
+                                          if (event.key === "Enter" || event.key === " ") {
+                                            event.preventDefault();
+                                            toggleDesignerFilter(designer.id);
+                                          }
+                                        }}>
+                                        <div className="flex items-center gap-3">
+                                          <Checkbox checked={isChecked} tabIndex={-1} className="pointer-events-none" />
+                                          <span className="text-sm font-medium text-foreground">{designer.name}</span>
+                                        </div>
+                                        {isChecked ? <Check className="h-4 w-4 text-primary" /> : null}
+                                      </div>
+                                    );
+                                  })
+                                ) : (
+                                  <div className="rounded-xl border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
+                                    No designers found.
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : null}
+
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       <div className="space-y-2">
                         <Label htmlFor="task-date-from" className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                          Date From
+                          Created Date From
                         </Label>
                         <Input
                           id="task-date-from"
@@ -1272,13 +1837,40 @@ export default function DailyTaskPage() {
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="task-date-to" className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                          Date To
+                          Created Date To
                         </Label>
                         <Input
                           id="task-date-to"
                           type="date"
                           value={dateTo}
                           onChange={(event) => setDateTo(event.target.value)}
+                          className="h-11 rounded-xl bg-background shadow-sm"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="task-target-date-from" className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                          Target Date From
+                        </Label>
+                        <Input
+                          id="task-target-date-from"
+                          type="date"
+                          value={targetDateFrom}
+                          onChange={(event) => setTargetDateFrom(event.target.value)}
+                          className="h-11 rounded-xl bg-background shadow-sm"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="task-target-date-to" className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                          Target Date To
+                        </Label>
+                        <Input
+                          id="task-target-date-to"
+                          type="date"
+                          value={targetDateTo}
+                          onChange={(event) => setTargetDateTo(event.target.value)}
                           className="h-11 rounded-xl bg-background shadow-sm"
                         />
                       </div>
@@ -1297,6 +1889,10 @@ export default function DailyTaskPage() {
                       <label className="flex items-center gap-3 rounded-xl border border-border/70 bg-background px-3 py-3">
                         <Checkbox checked={showRedo} onCheckedChange={(checked) => setShowRedo(Boolean(checked))} />
                         <span className="text-sm text-foreground">Show redo tasks</span>
+                      </label>
+                      <label className="flex items-center gap-3 rounded-xl border border-border/70 bg-background px-3 py-3">
+                        <Checkbox checked={showCompleted} onCheckedChange={(checked) => setShowCompleted(Boolean(checked))} />
+                        <span className="text-sm text-foreground">Show completed tasks</span>
                       </label>
                     </div>
 
@@ -1321,48 +1917,59 @@ export default function DailyTaskPage() {
                   setDrawerMode("create");
                   setTaskForm(EMPTY_TASK_FORM);
                   setInlineTypeOfWorkOpen(false);
-                  setInlineTypeOfWorkForm(EMPTY_INLINE_TYPE_OF_WORK_FORM);
+                  setInlineTypeOfWorkForm(getEmptyInlineTypeOfWorkForm(isAccountPlanner));
                 }
               }}>
-              <SheetContent side="right" className="flex h-full w-full flex-col overflow-hidden p-0 sm:max-w-xl">
+              <SheetContent side="right" className="flex h-full w-full flex-col overflow-hidden p-0 data-[side=right]:sm:max-w-[786px]">
                 <SheetHeader className="px-6 pt-6">
-                  <SheetTitle>{drawerMode === "edit" ? "Edit task" : "Create task"}</SheetTitle>
-                  <SheetDescription>
-                    {drawerMode === "edit" ? "Update the selected task." : "Create a new task for today."}
-                  </SheetDescription>
+                  <SheetTitle>{drawerTitle}</SheetTitle>
+                  <SheetDescription>{drawerDescription}</SheetDescription>
                 </SheetHeader>
                 <div className="mt-4 flex-1 overflow-y-auto px-6 pb-6">
                   <form className="space-y-4 rounded-lg border p-3" onSubmit={handleCreateTask}>
-                    <div className="space-y-2">
-                      <Label htmlFor="task-client">Client</Label>
-                      <Select
-                        value={taskForm.clientId || undefined}
-                        disabled={isReadOnlyTaskForm}
-                        onValueChange={(value) =>
-                          setTaskForm((prev) => ({
-                            ...prev,
-                            clientId: value,
-                            scopeOfWorkId:
-                              scopeOfWorkOptions.some(
-                                (item) =>
-                                  String(item.client || "") === String(value) &&
-                                  String(item.id) === String(prev.scopeOfWorkId),
-                              )
-                                ? prev.scopeOfWorkId
-                                : "",
-                          }))
-                        }>
-                        <SelectTrigger id="task-client" className={`h-9 w-full rounded-md ${isReadOnlyTaskForm ? "bg-muted text-muted-foreground" : ""}`}>
-                          <SelectValue placeholder="Select client" />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-72">
-                          {allowedClients.map((client) => (
-                            <SelectItem key={String(client.id)} value={String(client.id)}>
-                              {getClientName(client)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="task-client">Client</Label>
+                        <Select
+                          value={taskForm.clientId || undefined}
+                          disabled={isReadOnlyTaskForm}
+                          onValueChange={(value) =>
+                            setTaskForm((prev) => ({
+                              ...prev,
+                              clientId: value,
+                              scopeOfWorkId:
+                                scopeOfWorkOptions.some(
+                                  (item) =>
+                                    String(item.client || "") === String(value) &&
+                                    String(item.id) === String(prev.scopeOfWorkId),
+                                )
+                                  ? prev.scopeOfWorkId
+                                  : "",
+                            }))
+                          }>
+                          <SelectTrigger id="task-client" className={`h-9 w-full rounded-md ${isReadOnlyTaskForm ? "bg-muted text-muted-foreground" : ""}`}>
+                            <SelectValue placeholder="Select client" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-72">
+                            {allowedClients.map((client) => (
+                              <SelectItem key={String(client.id)} value={String(client.id)}>
+                                {getClientName(client)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="task-name">Task name</Label>
+                        <Input
+                          id="task-name"
+                          value={taskForm.taskName}
+                          required
+                          disabled={isReadOnlyTaskForm}
+                          onChange={(event) => setTaskForm((prev) => ({ ...prev, taskName: event.target.value }))}
+                        />
+                      </div>
                     </div>
 
                     <div className="space-y-2">
@@ -1388,87 +1995,154 @@ export default function DailyTaskPage() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="task-name">Task name</Label>
-                      <Input
-                        id="task-name"
-                        value={taskForm.taskName}
-                        required
-                        disabled={isReadOnlyTaskForm}
-                        onChange={(event) => setTaskForm((prev) => ({ ...prev, taskName: event.target.value }))}
-                      />
-                    </div>
-
-                    <div className="space-y-2">
                       <Label htmlFor="task-instructions">Instructions / Brief by Brand</Label>
-                      <textarea
-                        id="task-instructions"
-                        className={`min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm ${isReadOnlyTaskForm ? "bg-muted text-muted-foreground" : ""}`}
-                        value={taskForm.instructions}
-                        disabled={isReadOnlyTaskForm}
-                        onChange={(event) => setTaskForm((prev) => ({ ...prev, instructions: event.target.value }))}
-                      />
+                      {isReadOnlyTaskForm ? (
+                        <textarea
+                          id="task-instructions"
+                          className="min-h-24 w-full rounded-md border bg-muted px-3 py-2 text-sm text-muted-foreground"
+                          value={taskForm.instructions}
+                          disabled
+                        />
+                      ) : (
+                        <Editor
+                          editorSerializedState={taskForm.instructionsSerialized}
+                          onSerializedChange={(value) => setTaskForm((prev) => ({ ...prev, instructionsSerialized: value }))}
+                          onPlainTextChange={(value) => setTaskForm((prev) => ({ ...prev, instructions: value }))}
+                        />
+                      )}
                     </div>
 
                     {!isAccountPlanner ? (
                       <div className="space-y-2">
                         <Label htmlFor="task-instructions-by-art-director">Instructions By Art Director</Label>
-                        <textarea
-                          id="task-instructions-by-art-director"
-                          className={`min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm ${isReadOnlyTaskForm ? "bg-muted text-muted-foreground" : ""}`}
-                          value={taskForm.instructionsByArtDirector}
-                          disabled={isReadOnlyTaskForm}
-                          onChange={(event) =>
-                            setTaskForm((prev) => ({ ...prev, instructionsByArtDirector: event.target.value }))
-                          }
-                        />
+                        {isReadOnlyTaskForm ? (
+                          <textarea
+                            id="task-instructions-by-art-director"
+                            className="min-h-24 w-full rounded-md border bg-muted px-3 py-2 text-sm text-muted-foreground"
+                            value={taskForm.instructionsByArtDirector}
+                            disabled
+                          />
+                        ) : (
+                          <Editor
+                            editorSerializedState={taskForm.instructionsByArtDirectorSerialized}
+                            onSerializedChange={(value) =>
+                              setTaskForm((prev) => ({ ...prev, instructionsByArtDirectorSerialized: value }))
+                            }
+                            onPlainTextChange={(value) =>
+                              setTaskForm((prev) => ({ ...prev, instructionsByArtDirector: value }))
+                            }
+                          />
+                        )}
                       </div>
                     ) : null}
 
-                    <div className={`grid grid-cols-1 gap-4 ${canViewPoints ? "md:grid-cols-2" : ""}`}>
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                       <div className="space-y-2">
-                        <Label htmlFor="task-priority">Priority</Label>
+                        <div className="flex items-center justify-between gap-3">
+                          <Label htmlFor="task-type-of-work">Type Of Work</Label>
+                          {canManageTypeOfWork ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              className="h-auto px-0 py-0 text-sm font-medium"
+                              disabled={isReadOnlyTaskForm}
+                              onClick={() => {
+                                setInlineTypeOfWorkOpen((prev) => !prev);
+                                setInlineTypeOfWorkForm(getEmptyInlineTypeOfWorkForm(isAccountPlanner));
+                              }}>
+                              <Plus className="h-4 w-4" />
+                              Add new
+                            </Button>
+                          ) : null}
+                        </div>
                         <Select
-                          value={taskForm.priority}
+                          value={taskForm.typeOfWorkId || "__none__"}
                           disabled={isReadOnlyTaskForm}
-                          onValueChange={(value) => setTaskForm((prev) => ({ ...prev, priority: value }))}>
-                          <SelectTrigger id="task-priority" className={`h-9 w-full rounded-md ${isReadOnlyTaskForm ? "bg-muted text-muted-foreground" : ""}`}>
-                            <SelectValue placeholder="Select priority" />
+                          onValueChange={(value) =>
+                            setTaskForm((prev) => ({ ...prev, typeOfWorkId: value === "__none__" ? "" : value }))
+                          }>
+                          <SelectTrigger id="task-type-of-work" className={`h-9 w-full rounded-md ${isReadOnlyTaskForm ? "bg-muted text-muted-foreground" : ""}`}>
+                            <SelectValue placeholder="Select type of work" />
                           </SelectTrigger>
                           <SelectContent className="max-h-72">
-                          {Object.entries(TASK_PRIORITY_LABELS).map(([value, label]) => (
-                            <SelectItem key={value} value={value}>
-                              {label}
+                          <SelectItem value="__none__">Select type of work</SelectItem>
+                          {filteredTypeOfWorkOptions.map((item) => (
+                            <SelectItem key={String(item.id)} value={String(item.id)}>
+                              {item.work_type_name}
                             </SelectItem>
                           ))}
                           </SelectContent>
                         </Select>
                       </div>
-                      {canViewPoints ? (
-                        <div className="grid grid-cols-1 gap-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="task-excellence">Excellence</Label>
-                            <Select
-                              value={taskForm.excellence || "__none__"}
-                              disabled={isReadOnlyTaskForm}
-                              onValueChange={(value) =>
-                                setTaskForm((prev) => ({ ...prev, excellence: value === "__none__" ? "" : value }))
-                              }>
-                              <SelectTrigger id="task-excellence" className={`h-9 w-full rounded-md ${isReadOnlyTaskForm ? "bg-muted text-muted-foreground" : ""}`}>
-                                <SelectValue placeholder="Select excellence" />
-                              </SelectTrigger>
-                              <SelectContent className="max-h-72">
-                              <SelectItem value="__none__">Select excellence</SelectItem>
-                              {EXCELLENCE_OPTIONS.map((option) => (
-                                <SelectItem key={option} value={option}>
-                                  {option}
-                                </SelectItem>
-                              ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        </div>
-                      ) : null}
+
+                      <div className="space-y-2">
+                        <Label htmlFor="task-slides">Slides</Label>
+                        <Input
+                          id="task-slides"
+                          type="number"
+                          min="1"
+                          step="1"
+                          value={taskForm.slides}
+                          disabled={isReadOnlyTaskForm}
+                          onChange={(event) => setTaskForm((prev) => ({ ...prev, slides: event.target.value }))}
+                        />
+                      </div>
+
                     </div>
+
+                    {inlineTypeOfWorkOpen ? (
+                      <div className="rounded-2xl border border-border/80 bg-muted/20 p-4">
+                          <div className="grid grid-cols-1 gap-3">
+                            <div className="space-y-2">
+                              <Label htmlFor="inline-type-of-work-name">Work Type Name</Label>
+                              <Input
+                                id="inline-type-of-work-name"
+                                value={inlineTypeOfWorkForm.workTypeName}
+                                disabled={isReadOnlyTaskForm}
+                                onChange={(event) =>
+                                  setInlineTypeOfWorkForm((prev) => ({ ...prev, workTypeName: event.target.value }))
+                                }
+                              />
+                            </div>
+                            {!isAccountPlanner ? (
+                              <div className="space-y-2">
+                                <Label htmlFor="inline-type-of-work-point">Point</Label>
+                                <Input
+                                  id="inline-type-of-work-point"
+                                  type="number"
+                                  step="any"
+                                  value={inlineTypeOfWorkForm.point}
+                                  disabled={isReadOnlyTaskForm}
+                                  onChange={(event) =>
+                                    setInlineTypeOfWorkForm((prev) => ({ ...prev, point: event.target.value }))
+                                  }
+                                  placeholder="0"
+                                />
+                              </div>
+                            ) : null}
+                          </div>
+                          <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="rounded-xl"
+                              disabled={isReadOnlyTaskForm}
+                              onClick={() => {
+                                setInlineTypeOfWorkOpen(false);
+                                setInlineTypeOfWorkForm(getEmptyInlineTypeOfWorkForm(isAccountPlanner));
+                              }}>
+                              Cancel
+                            </Button>
+                            <Button
+                              type="button"
+                              className="rounded-xl"
+                              disabled={savingInlineTypeOfWork || isReadOnlyTaskForm}
+                              onClick={handleCreateInlineTypeOfWork}>
+                              {savingInlineTypeOfWork ? "Saving..." : "Save Type Of Work"}
+                            </Button>
+                          </div>
+                      </div>
+                    ) : null}
 
                     {!isAccountPlanner ? (
                       <div className="space-y-2">
@@ -1496,105 +2170,226 @@ export default function DailyTaskPage() {
                       </div>
                     ) : null}
 
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between gap-3">
-                        <Label htmlFor="task-type-of-work">Type Of Work</Label>
-                        {canManageTypeOfWork ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            className="h-auto px-0 py-0 text-sm font-medium"
-                            disabled={isReadOnlyTaskForm}
-                            onClick={() => {
-                              setInlineTypeOfWorkOpen((prev) => !prev);
-                              setInlineTypeOfWorkForm(EMPTY_INLINE_TYPE_OF_WORK_FORM);
-                            }}>
-                            <Plus className="h-4 w-4" />
-                            Add new
-                          </Button>
-                        ) : null}
+                    <div className={`grid grid-cols-1 gap-4 ${canEditExcellence ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
+                      <div className="space-y-2">
+                        <Label htmlFor="task-priority">Priority</Label>
+                        <Select
+                          value={taskForm.priority}
+                          disabled={isReadOnlyTaskForm}
+                          onValueChange={(value) => setTaskForm((prev) => ({ ...prev, priority: value }))}>
+                          <SelectTrigger id="task-priority" className={`h-9 w-full rounded-md ${isReadOnlyTaskForm ? "bg-muted text-muted-foreground" : ""}`}>
+                            <SelectValue placeholder="Select priority" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-72">
+                          {Object.entries(TASK_PRIORITY_LABELS).map(([value, label]) => (
+                            <SelectItem key={value} value={value}>
+                              {label}
+                            </SelectItem>
+                          ))}
+                          </SelectContent>
+                        </Select>
                       </div>
-                      <Select
-                        value={taskForm.typeOfWorkId || "__none__"}
+
+                      <div className="space-y-2">
+                        <Label htmlFor="task-target-date">Target Date</Label>
+                        <Input
+                          id="task-target-date"
+                          type="date"
+                          value={taskForm.targetDate}
+                          disabled={isReadOnlyTaskForm}
+                          onChange={(event) => setTaskForm((prev) => ({ ...prev, targetDate: event.target.value }))}
+                        />
+                      </div>
+
+                      {canEditExcellence ? (
+                        <div className="space-y-2">
+                          <Label htmlFor="task-excellence">Excellence</Label>
+                          <Select
+                            value={taskForm.excellence || "__none__"}
+                            disabled={isReadOnlyTaskForm}
+                            onValueChange={(value) =>
+                              setTaskForm((prev) => ({ ...prev, excellence: value === "__none__" ? "" : value }))
+                            }>
+                            <SelectTrigger id="task-excellence" className={`h-9 w-full rounded-md ${isReadOnlyTaskForm ? "bg-muted text-muted-foreground" : ""}`}>
+                              <SelectValue placeholder="Select excellence" />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-72">
+                            <SelectItem value="__none__">Select excellence</SelectItem>
+                            {EXCELLENCE_OPTIONS.map((option) => (
+                              <SelectItem key={option} value={option}>
+                                {option}
+                              </SelectItem>
+                            ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {canEditExcellence ? (
+                      <div className="space-y-2">
+                        <Label htmlFor="task-excellence-reason">Excellence Reason</Label>
+                        <textarea
+                          id="task-excellence-reason"
+                          className={`min-h-24 w-full rounded-md border px-3 py-2 text-sm ${isReadOnlyTaskForm ? "bg-muted text-muted-foreground" : "bg-background"}`}
+                          value={taskForm.excellenceReason}
+                          disabled={isReadOnlyTaskForm}
+                          onChange={(event) => setTaskForm((prev) => ({ ...prev, excellenceReason: event.target.value }))}
+                        />
+                      </div>
+                    ) : null}
+
+                    <div className="space-y-2">
+                      <Label htmlFor="task-attachments">Task Attachments</Label>
+                      <Input
+                        id="task-attachments"
+                        type="file"
+                        multiple
                         disabled={isReadOnlyTaskForm}
-                        onValueChange={(value) =>
-                          setTaskForm((prev) => ({ ...prev, typeOfWorkId: value === "__none__" ? "" : value }))
-                        }>
-                        <SelectTrigger id="task-type-of-work" className={`h-9 w-full rounded-md ${isReadOnlyTaskForm ? "bg-muted text-muted-foreground" : ""}`}>
-                          <SelectValue placeholder="Select type of work" />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-72">
-                        <SelectItem value="__none__">Select type of work</SelectItem>
-                        {filteredTypeOfWorkOptions.map((item) => (
-                          <SelectItem key={String(item.id)} value={String(item.id)}>
-                            {item.work_type_name}
-                          </SelectItem>
-                        ))}
-                        </SelectContent>
-                      </Select>
-                      {inlineTypeOfWorkOpen ? (
-                        <div className="rounded-2xl border border-border/80 bg-muted/20 p-4">
-                          <div className="grid grid-cols-1 gap-3">
-                            <div className="space-y-2">
-                              <Label htmlFor="inline-type-of-work-name">Work Type Name</Label>
-                              <Input
-                                id="inline-type-of-work-name"
-                                value={inlineTypeOfWorkForm.workTypeName}
-                                disabled={isReadOnlyTaskForm}
-                                onChange={(event) =>
-                                  setInlineTypeOfWorkForm((prev) => ({ ...prev, workTypeName: event.target.value }))
-                                }
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="inline-type-of-work-point">Point</Label>
-                              <Input
-                                id="inline-type-of-work-point"
-                                type="number"
-                                step="any"
-                                value={inlineTypeOfWorkForm.point}
-                                disabled={isReadOnlyTaskForm}
-                                onChange={(event) =>
-                                  setInlineTypeOfWorkForm((prev) => ({ ...prev, point: event.target.value }))
-                                }
-                                placeholder="0"
-                              />
-                            </div>
+                        onChange={(event) =>
+                          setTaskForm((prev) => ({
+                            ...prev,
+                            attachmentFiles: [...prev.attachmentFiles, ...Array.from(event.target.files || [])],
+                          }))
+                        }
+                      />
+                      {taskForm.attachmentFiles.length > 0 ? (
+                        <div className="rounded-xl border border-border/70 bg-muted/20 p-3">
+                          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Selected attachments</p>
+                          <div className="mt-2 space-y-2">
+                            {taskForm.attachmentFiles.map((file, index) => (
+                              <div key={`${file.name}-${file.size}-${file.lastModified}-${index}`} className="flex items-center gap-2 rounded-lg border border-border/60 bg-background px-3 py-2">
+                                <span className="min-w-0 flex-1 truncate text-sm text-foreground">{file.name}</span>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 shrink-0 rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                  disabled={isReadOnlyTaskForm}
+                                  onClick={() =>
+                                    setTaskForm((prev) => ({
+                                      ...prev,
+                                      attachmentFiles: prev.attachmentFiles.filter((_, fileIndex) => fileIndex !== index),
+                                    }))
+                                  }>
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            ))}
                           </div>
-                          <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="rounded-xl"
-                              disabled={isReadOnlyTaskForm}
-                              onClick={() => {
-                                setInlineTypeOfWorkOpen(false);
-                                setInlineTypeOfWorkForm(EMPTY_INLINE_TYPE_OF_WORK_FORM);
-                              }}>
-                              Cancel
-                            </Button>
-                            <Button
-                              type="button"
-                              className="rounded-xl"
-                              disabled={savingInlineTypeOfWork || isReadOnlyTaskForm}
-                              onClick={handleCreateInlineTypeOfWork}>
-                              {savingInlineTypeOfWork ? "Saving..." : "Save Type Of Work"}
-                            </Button>
+                        </div>
+                      ) : null}
+                      {drawerMode === "edit" && taskForm.attachments.length > 0 ? (
+                        <div className="rounded-xl border border-border/70 bg-muted/20 p-3">
+                          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Existing attachments</p>
+                          <div className="mt-2 space-y-2">
+                            {taskForm.attachments.map((attachment) => (
+                              <div key={String(attachment.id)} className="flex items-center gap-2 rounded-lg border border-border/60 bg-background px-3 py-2">
+                                <a
+                                  href={getAttachmentUrl(attachment)}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="min-w-0 flex-1 truncate text-sm text-foreground transition hover:text-primary">
+                                  {getAttachmentName(attachment)}
+                                </a>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 shrink-0 rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                  disabled={String(deletingTaskAttachmentId) === String(attachment.id)}
+                                  onClick={() => handleDeleteTaskAttachment(attachment.id)}>
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            ))}
                           </div>
                         </div>
                       ) : null}
                     </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor="task-target-date">Target Date</Label>
-                      <Input
-                        id="task-target-date"
-                        type="date"
-                        value={taskForm.targetDate}
-                        disabled={isReadOnlyTaskForm}
-                        onChange={(event) => setTaskForm((prev) => ({ ...prev, targetDate: event.target.value }))}
-                      />
-                    </div>
+                    {canManageNegativeRemarks ? (
+                      <div className="space-y-2">
+                        <Label>Negative Remarks</Label>
+                        {negativeRemarkOptions.length === 0 ? (
+                          <p className="text-sm text-muted-foreground">No negative remarks available.</p>
+                        ) : (
+                          <div className="rounded-xl border border-border/70 bg-muted/20 p-3">
+                            <div className="space-y-2">
+                              {negativeRemarkOptions.map((remark) => {
+                                const remarkId = String(remark.id);
+                                const isChecked = taskForm.negativeRemarkIds.includes(remarkId);
+                                return (
+                                  <label key={remarkId} className="flex items-start gap-3 rounded-lg border border-border/60 bg-background px-3 py-3">
+                                    <Checkbox
+                                      checked={isChecked}
+                                      disabled={isReadOnlyTaskForm}
+                                      onCheckedChange={(checked) =>
+                                        setTaskForm((prev) => ({
+                                          ...prev,
+                                          negativeRemarkIds: Boolean(checked)
+                                            ? [...prev.negativeRemarkIds, remarkId]
+                                            : prev.negativeRemarkIds.filter((id) => id !== remarkId),
+                                        }))
+                                      }
+                                    />
+                                    <div className="min-w-0 flex-1">
+                                      <p className="text-sm font-medium text-foreground">
+                                        {remark.remark_name}
+                                        {remark.point !== undefined && remark.point !== null ? ` (${formatRemarkPoint(remark.point)})` : ""}
+                                      </p>
+                                      {remark.description ? (
+                                        <p className="mt-1 text-xs text-muted-foreground">{remark.description}</p>
+                                      ) : null}
+                                    </div>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
+
+                    {isRevisionTaskForm ? (
+                      <div className="space-y-2">
+                          <Label>Revision Changes</Label>
+                          <div className="grid gap-3 md:grid-cols-2">
+                            <label className="flex items-center gap-3 rounded-xl border border-border/70 bg-background px-3 py-3">
+                              <input
+                                type="radio"
+                                name="task-revision-changes"
+                                checked={taskForm.haveMajorChanges}
+                                disabled={isReadOnlyTaskForm}
+                                onChange={() =>
+                                  setTaskForm((prev) => ({
+                                    ...prev,
+                                    haveMajorChanges: true,
+                                    haveMinorChanges: false,
+                                  }))
+                                }
+                              />
+                              <span className="text-sm text-foreground">Have major changes</span>
+                            </label>
+                            <label className="flex items-center gap-3 rounded-xl border border-border/70 bg-background px-3 py-3">
+                              <input
+                                type="radio"
+                                name="task-revision-changes"
+                                checked={taskForm.haveMinorChanges}
+                                disabled={isReadOnlyTaskForm}
+                                onChange={() =>
+                                  setTaskForm((prev) => ({
+                                    ...prev,
+                                    haveMajorChanges: false,
+                                    haveMinorChanges: true,
+                                  }))
+                                }
+                              />
+                              <span className="text-sm text-foreground">Have minor changes</span>
+                            </label>
+                          </div>
+                      </div>
+                    ) : null}
 
                     {drawerMode === "edit" ? (
                       <div className="space-y-3 rounded-2xl border border-border/80 bg-muted/20 p-4">
@@ -1685,7 +2480,7 @@ export default function DailyTaskPage() {
                       </div>
                     ) : (
                       <Button type="submit" disabled={savingTask} className="w-full rounded-xl">
-                        {savingTask ? "Saving..." : "Create task"}
+                        {drawerSubmitLabel}
                       </Button>
                     )}
                   </form>

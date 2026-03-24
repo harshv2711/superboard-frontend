@@ -174,10 +174,43 @@ const usersCrud = createCrud("/api/users/");
 const brandsCrud = createCrud("/api/brands/");
 const serviceCategoriesCrud = createCrud("/api/service-categories/");
 const typeOfWorkCrud = createCrud("/api/type-of-work/");
+const groupsCrud = createCrud("/api/groups/");
+const groupMembersCrud = createCrud("/api/group-members/");
+const negativeRemarksCrud = createCrud("/api/negative-remarks/");
+const negativeRemarksOnTaskCrud = createCrud("/api/negative-remarks-on-task/");
 const clientsCrud = createCrud("/api/clients/");
 const clientAttachmentsCrud = createCrud("/api/client-attachments/");
+const clientMonthlyAmountsCrud = createCrud("/api/client-monthly-amounts/");
+const taskAttachmentsCrud = createCrud("/api/task-attachments/");
 const scopeOfWorkCrud = createCrud("/api/scope-of-work/");
 const tasksCrud = createCrud("/api/tasks/");
+
+async function listDesignerUsers(query = {}) {
+  const [groups, groupMembers, users] = await Promise.all([
+    groupsCrud.listAll({ page_size: 300 }),
+    groupMembersCrud.listAll({ page_size: 1000 }),
+    usersCrud.listAll({ page_size: 300 }),
+  ]);
+
+  const designerGroupIds = new Set(
+    (Array.isArray(groups) ? groups : [])
+      .filter((group) => String(group?.name || "").trim().toLowerCase() === "designer")
+      .map((group) => String(group.id)),
+  );
+
+  if (!designerGroupIds.size) {
+    return (Array.isArray(users) ? users : []).filter((user) => user?.role === "designer");
+  }
+
+  const designerUserIds = new Set(
+    (Array.isArray(groupMembers) ? groupMembers : [])
+      .filter((member) => designerGroupIds.has(String(member?.group || "")))
+      .map((member) => String(member?.user || ""))
+      .filter(Boolean),
+  );
+
+  return (Array.isArray(users) ? users : []).filter((user) => designerUserIds.has(String(user?.id || user?.user_id || "")));
+}
 
 export const superboardApi = {
   auth: {
@@ -255,11 +288,20 @@ export const superboardApi = {
       }),
   },
   users: usersCrud,
+  groups: groupsCrud,
+  groupMembers: groupMembersCrud,
+  designers: {
+    listAll: listDesignerUsers,
+  },
   brands: brandsCrud,
   serviceCategories: serviceCategoriesCrud,
   typeOfWork: typeOfWorkCrud,
+  negativeRemarks: negativeRemarksCrud,
+  negativeRemarksOnTask: negativeRemarksOnTaskCrud,
   clients: clientsCrud,
   clientAttachments: clientAttachmentsCrud,
+  clientMonthlyAmounts: clientMonthlyAmountsCrud,
+  taskAttachments: taskAttachmentsCrud,
   scopeOfWork: scopeOfWorkCrud,
   tasks: {
     ...tasksCrud,

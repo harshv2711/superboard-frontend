@@ -6,6 +6,7 @@ import DailyTaskPage from "./pages/DailyTaskPage.jsx";
 import DeliverablesTrackerPage from "./pages/DeliverablesTrackerPage.jsx";
 import AccountPage from "./pages/AccountPage.jsx";
 import DesignerKpiPage from "./pages/DesignerKpiPage.jsx";
+import BrandKpiPage from "./pages/BrandKpiPage.jsx";
 import LoginPage from "./pages/LoginPage.jsx";
 import RegisterPage from "./pages/RegisterPage.jsx";
 import TypeOfWorkPage from "./pages/TypeOfWorkPage.jsx";
@@ -196,6 +197,14 @@ export default function App() {
           <RequireAuth>
             <DesignerKpiPage />
           </RequireAuth>
+        }
+      />
+      <Route
+        path="/reports/brand-kpi"
+        element={
+          <RequireRole allowedRoles={["superuser"]}>
+            <BrandKpiPage />
+          </RequireRole>
         }
       />
       <Route path="*" element={<Navigate to={isAuthenticated() ? defaultRoute : "/login"} replace />} />

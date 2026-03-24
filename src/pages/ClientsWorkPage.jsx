@@ -1,5 +1,6 @@
 import { superboardApi } from "@/api/superboardApi";
 import { AppSidebar } from "@/components/app-sidebar";
+import { Editor } from "@/components/blocks/editor-00/editor";
 import { SiteHeader } from "@/components/site-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,7 +13,7 @@ import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetT
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { CalendarDays, ChevronLeft, ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
+import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Download, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Keyboard } from "swiper/modules";
 import { Swiper, SwiperSlide } from "swiper/react";
@@ -31,6 +32,25 @@ const TASK_PRIORITY_BADGE_STYLES = {
   low: "border-emerald-200 bg-emerald-50 text-emerald-700",
 };
 const EXCELLENCE_OPTIONS = Array.from({ length: 20 }, (_, index) => ((index + 1) * 0.5).toFixed(1));
+const EMPTY_EDITOR_STATE = {
+  root: {
+    children: [
+      {
+        children: [],
+        direction: null,
+        format: "",
+        indent: 0,
+        type: "paragraph",
+        version: 1,
+      },
+    ],
+    direction: null,
+    format: "",
+    indent: 0,
+    type: "root",
+    version: 1,
+  },
+};
 
 function getClientName(client) {
   return client.name || client.client_name || client.title || `Client #${client.id}`;
@@ -82,6 +102,12 @@ function getTaskPriorityBadgeClass(task) {
   return TASK_PRIORITY_BADGE_STYLES[rawPriority] || "border-border bg-background text-foreground";
 }
 
+function formatRemarkPoint(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "";
+  return Number.isInteger(numeric) ? String(numeric) : numeric.toFixed(2).replace(/\.?0+$/, "");
+}
+
 function getTaskServiceCategory(task) {
   return task.service_category_name || task.serviceCategoryName || task.category_name || "-";
 }
@@ -100,9 +126,83 @@ function getTaskDescription(task) {
   return task.instructions || task.description || task.notes || "-";
 }
 
+function getScopeOfWorkIdValue(value) {
+  const rawValue = value?.scope_of_work ?? value?.scopeOfWork ?? value?.scope_of_work_id ?? value?.scopeOfWorkId ?? value;
+  if (!rawValue) return "";
+  if (typeof rawValue === "object") return rawValue?.id ? String(rawValue.id) : "";
+  return String(rawValue);
+}
+
+function resolveScopeOfWorkId(task, scopeOptions = []) {
+  const directId = getScopeOfWorkIdValue(task);
+  if (directId) return directId;
+
+  const clientId = String(task?.client || task?.client_id || "");
+  const scopeName = String(task?.scope_of_work_name || task?.scopeOfWorkName || "").trim().toLowerCase();
+  const serviceCategoryName = String(task?.service_category_name || task?.serviceCategoryName || "").trim().toLowerCase();
+
+  const matchingScope = scopeOptions.find((scope) => {
+    const scopeClientId = String(scope?.client || scope?.client_id || "");
+    if (clientId && scopeClientId !== clientId) return false;
+
+    const deliverableName = String(scope?.deliverable_name || "").trim().toLowerCase();
+    const scopeServiceCategoryName = String(scope?.service_category_name || scope?.serviceCategoryName || "").trim().toLowerCase();
+
+    if (scopeName && deliverableName === scopeName) return true;
+    if (scopeName && serviceCategoryName) {
+      return deliverableName === scopeName && scopeServiceCategoryName === serviceCategoryName;
+    }
+    return false;
+  });
+
+  return matchingScope?.id ? String(matchingScope.id) : "";
+}
+
 function getTaskDateValue(task) {
   const candidates = [task.target_date, task.created_at];
   return candidates.find((value) => getIsoDateKey(value)) || "";
+}
+
+function getTaskCreatedDateKey(task) {
+  return getIsoDateKey(task?.created_at);
+}
+
+function getTaskTargetDateKey(task) {
+  return getIsoDateKey(task?.target_date);
+}
+
+function createSerializedFromText(text) {
+  return {
+    root: {
+      children: [
+        {
+          children: text
+            ? [
+                {
+                  detail: 0,
+                  format: 0,
+                  mode: "normal",
+                  style: "",
+                  text,
+                  type: "text",
+                  version: 1,
+                },
+              ]
+            : [],
+          direction: null,
+          format: "",
+          indent: 0,
+          type: "paragraph",
+          version: 1,
+        },
+      ],
+      direction: null,
+      format: "",
+      indent: 0,
+      type: "root",
+      version: 1,
+    },
+  };
 }
 
 function formatDate(isoDate) {
@@ -209,8 +309,32 @@ const MONTH_NAMES = [
 ];
 
 const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
 
-function TaskHistoryDrawer({ open, onOpenChange, task, items }) {
+function getAttachmentUrl(attachment) {
+  const file = attachment?.file_url || attachment?.file || "";
+  if (!file) return "";
+  if (file.startsWith("http://") || file.startsWith("https://")) return file;
+  return `${API_BASE_URL}${file.startsWith("/") ? file : `/${file}`}`;
+}
+
+function getAttachmentName(attachment) {
+  const file = attachment?.file_url || attachment?.file || "";
+  if (!file) return "Attachment";
+  return String(file).split("/").pop() || "Attachment";
+}
+
+function truncateFileName(name, maxLength = 32) {
+  const value = String(name || "");
+  if (value.length <= maxLength) return value;
+  const extensionIndex = value.lastIndexOf(".");
+  const extension = extensionIndex > 0 ? value.slice(extensionIndex) : "";
+  const baseName = extension ? value.slice(0, extensionIndex) : value;
+  const available = Math.max(8, maxLength - extension.length - 3);
+  return `${baseName.slice(0, available)}...${extension}`;
+}
+
+function TaskHistoryDrawer({ open, onOpenChange, task, items, canDeleteItem, deletingTaskId, onDeleteItem }) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="flex h-full !w-full flex-col overflow-hidden p-0 sm:!w-[40vw] sm:!max-w-[900px]">
@@ -235,13 +359,28 @@ function TaskHistoryDrawer({ open, onOpenChange, task, items }) {
                     className={`rounded-3xl border px-5 py-4 shadow-sm ${
                       item.isSelected ? "border-primary/40 bg-primary/5" : "border-border bg-card"
                     }`}>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant={item.isSelected ? "default" : "secondary"} className="rounded-full px-3 py-1">
-                        {item.kind}
-                      </Badge>
-                      <Badge variant="outline" className="rounded-full px-3 py-1">
-                        {item.client_name || "-"}
-                      </Badge>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant={item.isSelected ? "default" : "secondary"} className="rounded-full px-3 py-1">
+                          {item.kind}
+                        </Badge>
+                        <Badge variant="outline" className="rounded-full px-3 py-1">
+                          {item.client_name || "-"}
+                        </Badge>
+                      </div>
+                      {canDeleteItem?.(item) ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-9 w-9 shrink-0 rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                          onClick={() => onDeleteItem?.(item.id)}
+                          disabled={deletingTaskId === String(item.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          <span className="sr-only">Delete task</span>
+                        </Button>
+                      ) : null}
                     </div>
                     <div className="mt-3">
                       <p className="text-lg font-semibold text-foreground">{getTaskName(item)}</p>
@@ -284,6 +423,8 @@ function TaskHistoryDrawer({ open, onOpenChange, task, items }) {
 
 function TaskCard({
   task,
+  attachments,
+  negativeRemarkLinks,
   isAccountPlanner,
   isArtDirector,
   isDesigner,
@@ -328,14 +469,22 @@ function TaskCard({
         </div>
         <div className="grid gap-3 text-sm">
           <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Instructions</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Instructions/ Brief by Brand</p>
             <p className="mt-2 font-medium text-foreground">{task.instructions || "No instructions added."}</p>
           </div>
-          <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Instructions By Art Director</p>
-            <p className="mt-2 font-medium text-foreground">{task.InstructionsByArtDirector || "-"}</p>
-          </div>
-          {(isArtDirector || !isAccountPlanner) ? (
+          {!isAccountPlanner ? (
+            <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Instructions By Art Director</p>
+              <p className="mt-2 font-medium text-foreground">{task.InstructionsByArtDirector || "-"}</p>
+            </div>
+          ) : null}
+          {!isAccountPlanner && !isDesigner && task.excellence_reason ? (
+            <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Excellence Reason</p>
+              <p className="mt-2 font-medium text-foreground">{task.excellence_reason}</p>
+            </div>
+          ) : null}
+          {!isDesigner && (isArtDirector || !isAccountPlanner) ? (
             <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
               <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Designer</p>
               <p className="mt-2 font-medium text-foreground">{task.designer_name || "Unassigned"}</p>
@@ -376,6 +525,42 @@ function TaskCard({
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Updated At</p>
             <p className="mt-2 font-medium text-foreground">{formatTimestamp(task.updated_at)}</p>
           </div>
+          {attachments.length > 0 ? (
+            <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Attachments</p>
+              <div className="mt-2 space-y-2">
+                {attachments.map((attachment) => (
+                  <div key={String(attachment.id)} className="flex items-center gap-2 rounded-lg border border-border/60 bg-background px-3 py-2">
+                    <div className="min-w-0 flex-1 overflow-hidden">
+                      <span className="block truncate text-sm font-medium text-foreground">{truncateFileName(getAttachmentName(attachment))}</span>
+                    </div>
+                    <a
+                      href={getAttachmentUrl(attachment)}
+                      download
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label={`Download ${getAttachmentName(attachment)}`}
+                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border text-foreground transition hover:bg-muted">
+                      <Download className="h-3.5 w-3.5" />
+                    </a>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {!isAccountPlanner && !isDesigner && negativeRemarkLinks.length > 0 ? (
+            <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Negative Remarks</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {negativeRemarkLinks.map((link) => (
+                  <Badge key={String(link.id)} variant="outline" className="rounded-full px-3 py-1 text-xs">
+                    {link.negative_remark_name}
+                    {link.point !== undefined && link.point !== null ? ` (${formatRemarkPoint(link.point)})` : ""}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
         {canEdit || hasHistory ? (
           <div className="flex flex-wrap gap-2 pt-1">
@@ -404,21 +589,33 @@ function TaskCard({
 const EMPTY_TASK_FORM = {
   id: null,
   clientId: "",
+  scopeOfWorkId: "",
   revisionOfId: "",
   redoOfId: "",
+  revisionType: "",
   createdBy: "",
   createdByName: "",
   taskName: "",
   instructions: "",
+  instructionsSerialized: EMPTY_EDITOR_STATE,
   instructionsByArtDirector: "",
+  instructionsByArtDirectorSerialized: EMPTY_EDITOR_STATE,
   priority: "medium",
   designerId: "",
   typeOfWorkId: "",
+  slides: "1",
   targetDate: "",
   excellence: "",
+  excellenceReason: "",
   isMarkedCompletedByAccountPlanner: false,
   isMarkedCompletedByArtDirector: false,
   isMarkedCompletedByDesigner: false,
+  haveMajorChanges: false,
+  haveMinorChanges: false,
+  negativeRemarkIds: [],
+  negativeRemarkLinks: [],
+  attachments: [],
+  attachmentFiles: [],
 };
 
 const EMPTY_INLINE_TYPE_OF_WORK_FORM = {
@@ -426,17 +623,30 @@ const EMPTY_INLINE_TYPE_OF_WORK_FORM = {
   point: "",
 };
 
+function getEmptyInlineTypeOfWorkForm(isAccountPlanner = false) {
+  return {
+    workTypeName: "",
+    point: isAccountPlanner ? "0.5" : "",
+  };
+}
+
 export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
   const swiperRef = useRef(null);
+  const clientFilterRef = useRef(null);
+  const designerFilterRef = useRef(null);
   const now = new Date();
   const [clients, setClients] = useState([]);
   const [users, setUsers] = useState([]);
   const [typeOfWorkOptions, setTypeOfWorkOptions] = useState([]);
+  const [negativeRemarkOptions, setNegativeRemarkOptions] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
   const [tasks, setTasks] = useState([]);
+  const [taskAttachments, setTaskAttachments] = useState([]);
+  const [negativeRemarkLinks, setNegativeRemarkLinks] = useState([]);
   const [reloadTick, setReloadTick] = useState(0);
-  const [selectedClientId, setSelectedClientId] = useState("");
+  const [selectedClientIds, setSelectedClientIds] = useState([]);
   const [selectedDesignerId, setSelectedDesignerId] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [loadingClients, setLoadingClients] = useState(true);
   const [loadingTasks, setLoadingTasks] = useState(false);
   const [clientsError, setClientsError] = useState("");
@@ -447,15 +657,31 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
   const [drawerError, setDrawerError] = useState("");
   const [savingTask, setSavingTask] = useState(false);
   const [savingInlineTypeOfWork, setSavingInlineTypeOfWork] = useState(false);
+  const [deletingHistoryTaskId, setDeletingHistoryTaskId] = useState(null);
+  const [deletingTaskAttachmentId, setDeletingTaskAttachmentId] = useState(null);
   const [taskForm, setTaskForm] = useState(EMPTY_TASK_FORM);
   const [inlineTypeOfWorkOpen, setInlineTypeOfWorkOpen] = useState(false);
   const [inlineTypeOfWorkForm, setInlineTypeOfWorkForm] = useState(EMPTY_INLINE_TYPE_OF_WORK_FORM);
   const [updatingDesignerCompletionTaskId, setUpdatingDesignerCompletionTaskId] = useState(null);
   const [originalTaskOptions, setOriginalTaskOptions] = useState([]);
+  const [scopeOfWorkOptions, setScopeOfWorkOptions] = useState([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyTaskId, setHistoryTaskId] = useState(null);
-  const [selectedMonth, setSelectedMonth] = useState(now.getMonth());
-  const [selectedYear, setSelectedYear] = useState(now.getFullYear());
+  const [dateFrom, setDateFrom] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`);
+  const [dateTo, setDateTo] = useState(
+    `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()).padStart(2, "0")}`,
+  );
+  const [targetDateFrom, setTargetDateFrom] = useState("");
+  const [targetDateTo, setTargetDateTo] = useState("");
+  const [showOriginal, setShowOriginal] = useState(true);
+  const [showRevision, setShowRevision] = useState(true);
+  const [showRedo, setShowRedo] = useState(true);
+  const [showCompleted, setShowCompleted] = useState(true);
+  const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
+  const [clientFilterOpen, setClientFilterOpen] = useState(false);
+  const [clientFilterQuery, setClientFilterQuery] = useState("");
+  const [designerFilterOpen, setDesignerFilterOpen] = useState(false);
+  const [designerFilterQuery, setDesignerFilterQuery] = useState("");
   const currentUserId = String(currentUser?.id || currentUser?.user_id || "");
   const currentUserRole = currentUser?.role || "";
   const isSuperuser = currentUserRole === "superuser";
@@ -465,12 +691,16 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
   const isDesignerEditMode = drawerMode === "edit" && currentUserRole === "designer";
   const isArtDirectorReadOnlyTask = false;
   const isReadOnlyTaskForm = isDesignerEditMode || isArtDirectorReadOnlyTask;
+  const isRevisionTaskForm = Boolean(taskForm.revisionOfId);
   const canManageTypeOfWork = isSuperuser || currentUserRole === "art_director";
   const canViewPoints = !isAccountPlanner && !isArtDirector && !isDesigner;
+  const canEditExcellence = drawerMode === "edit" && (isArtDirector || isSuperuser);
   const accountPlannerCompletionBlocked =
     isAccountPlanner &&
     (!taskForm.isMarkedCompletedByArtDirector || !taskForm.isMarkedCompletedByDesigner);
   const artDirectorCompletionBlocked = isArtDirector && !taskForm.isMarkedCompletedByDesigner;
+  const selectedClientId = selectedClientIds[0] || "";
+
   useEffect(() => {
     let cancelled = false;
     async function loadClients() {
@@ -479,17 +709,22 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
         setClientsError("");
         const me = await superboardApi.auth.me();
         const rows = await superboardApi.clients.listAll({ page_size: 300 });
-        const allUsers = await superboardApi.users.listAll({ page_size: 300 });
+        const allUsers = await superboardApi.designers.listAll({ page_size: 300 });
+        const allScopeOfWork = await superboardApi.scopeOfWork.listAll({ page_size: 300 });
         const allTypeOfWork = await superboardApi.typeOfWork.listAll({ page_size: 300 });
+        const allNegativeRemarks = await superboardApi.negativeRemarks.listAll({ page_size: 300 });
         const sorted = [...rows].sort((a, b) => getClientName(a).localeCompare(getClientName(b)));
         if (cancelled) return;
         setCurrentUser(me);
         setClients(sorted);
         setUsers(allUsers);
+        setScopeOfWorkOptions(Array.isArray(allScopeOfWork) ? allScopeOfWork : []);
         setTypeOfWorkOptions(allTypeOfWork);
-        setSelectedClientId((prev) => {
-          if (sorted.some((client) => String(client.id) === String(prev))) return prev;
-          return String(sorted[0]?.id || "");
+        setNegativeRemarkOptions(Array.isArray(allNegativeRemarks) ? allNegativeRemarks : []);
+        setSelectedClientIds((prev) => {
+          const validIds = prev.filter((id) => sorted.some((client) => String(client.id) === String(id)));
+          if (validIds.length > 0) return validIds;
+          return sorted[0]?.id ? [String(sorted[0].id)] : [];
         });
         setSelectedDesignerId((prev) => {
           if (me?.role === "designer") return String(me.id || me.user_id || "");
@@ -512,9 +747,23 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
   }, []);
 
   useEffect(() => {
+    function handleClickOutside(event) {
+      if (clientFilterRef.current && !clientFilterRef.current.contains(event.target)) {
+        setClientFilterOpen(false);
+      }
+      if (designerFilterRef.current && !designerFilterRef.current.contains(event.target)) {
+        setDesignerFilterOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
     async function loadTasks() {
-      if (!selectedClientId && currentUserRole !== "designer") {
+      if (selectedClientIds.length === 0) {
         setTasks([]);
         return;
       }
@@ -522,11 +771,28 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
       try {
         setLoadingTasks(true);
         setTasksError("");
-        const query = currentUserRole === "designer" ? { page_size: 300 } : { client: selectedClientId, page_size: 300 };
-        const rows = await superboardApi.tasks.listAll(query);
+        const [taskLists, attachments, remarkLinks] = await Promise.all([
+          Promise.all(
+            selectedClientIds.map((clientId) =>
+              superboardApi.tasks.listAll({ client: clientId, page_size: 300 }),
+            ),
+          ),
+          superboardApi.taskAttachments.listAll({ page_size: 1000 }),
+          superboardApi.negativeRemarksOnTask.listAll({ page_size: 1000 }),
+        ]);
 
         if (cancelled) return;
-        setTasks(rows);
+        const mergedRows = Array.from(
+          new Map(
+            taskLists
+              .flat()
+              .filter((row) => row?.id)
+              .map((row) => [String(row.id), row]),
+          ).values(),
+        );
+        setTasks(mergedRows);
+        setTaskAttachments(Array.isArray(attachments) ? attachments : []);
+        setNegativeRemarkLinks(Array.isArray(remarkLinks) ? remarkLinks : []);
       } catch (loadError) {
         if (cancelled) return;
         const message = loadError.message || "Failed to load tasks.";
@@ -540,12 +806,28 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
     return () => {
       cancelled = true;
     };
-  }, [currentUserRole, selectedClientId, reloadTick]);
+  }, [currentUserRole, reloadTick, selectedClientIds]);
 
   const selectedClient = useMemo(() => {
-    if (currentUserRole === "designer") return null;
     return clients.find((client) => String(client.id) === String(selectedClientId)) || null;
-  }, [clients, currentUserRole, selectedClientId]);
+  }, [clients, selectedClientId]);
+  const clientOptions = useMemo(() => {
+    return clients.map((client) => ({
+      id: String(client.id),
+      name: getClientName(client),
+    }));
+  }, [clients]);
+  const selectedClientValues = useMemo(() => {
+    return clientOptions.filter((client) => selectedClientIds.includes(client.id));
+  }, [clientOptions, selectedClientIds]);
+  const visibleClientOptions = useMemo(() => {
+    const query = clientFilterQuery.trim().toLowerCase();
+    if (!query) return clientOptions;
+    return clientOptions.filter((client) => client.name.toLowerCase().includes(query));
+  }, [clientFilterQuery, clientOptions]);
+  const filteredScopeOfWorkOptions = useMemo(() => {
+    return scopeOfWorkOptions.filter((item) => String(item.client || item.client_id || "") === String(taskForm.clientId));
+  }, [scopeOfWorkOptions, taskForm.clientId]);
   const isSelectedClientOwner = useMemo(() => {
     if (!selectedClient || !currentUserId) return false;
     return getOwnerUserIds(selectedClient).includes(currentUserId);
@@ -587,10 +869,80 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
     return new Map(tasks.filter((task) => task?.id).map((task) => [String(task.id), task]));
   }, [tasks]);
   const designerOptions = useMemo(() => users, [users]);
+  const visibleDesignerOptions = useMemo(() => {
+    const query = designerFilterQuery.trim().toLowerCase();
+    if (!query) return designerOptions;
+    return designerOptions.filter((designer) => {
+      const label = designer.first_name || designer.last_name
+        ? `${designer.first_name || ""} ${designer.last_name || ""}`.trim()
+        : designer.email || "";
+      return label.toLowerCase().includes(query);
+    });
+  }, [designerFilterQuery, designerOptions]);
   const filteredTasks = useMemo(() => {
-    if (!selectedDesignerId) return tasks;
-    return tasks.filter((task) => String(task.designer || "") === String(selectedDesignerId));
-  }, [selectedDesignerId, tasks]);
+    return tasks.filter((task) => {
+      if (searchQuery.trim() !== "") {
+        const lowerSearch = searchQuery.toLowerCase();
+        const taskName = getTaskName(task).toLowerCase();
+        if (!taskName.includes(lowerSearch)) return false;
+      }
+
+      if (selectedDesignerId && String(task.designer || "") !== String(selectedDesignerId)) return false;
+
+      const taskType = getTaskStatus(task).toLowerCase();
+      if (taskType === "original" && !showOriginal) return false;
+      if (taskType === "revision" && !showRevision) return false;
+      if (taskType === "redo" && !showRedo) return false;
+
+      const completed = isTaskCompleted(task);
+      if (completed && !showCompleted) return false;
+
+      const createdDateKey = getTaskCreatedDateKey(task);
+      if (!createdDateKey) return false;
+      if (dateFrom && createdDateKey < dateFrom) return false;
+      if (dateTo && createdDateKey > dateTo) return false;
+
+      const targetDateKey = getTaskTargetDateKey(task);
+      if (targetDateFrom) {
+        if (!targetDateKey || targetDateKey < targetDateFrom) return false;
+      }
+      if (targetDateTo) {
+        if (!targetDateKey || targetDateKey > targetDateTo) return false;
+      }
+
+      return true;
+    });
+  }, [
+    dateFrom,
+    dateTo,
+    searchQuery,
+    selectedDesignerId,
+    showCompleted,
+    showOriginal,
+    showRedo,
+    showRevision,
+    targetDateFrom,
+    targetDateTo,
+    tasks,
+  ]);
+  const attachmentsByTaskId = useMemo(() => {
+    return taskAttachments.reduce((accumulator, attachment) => {
+      const key = String(attachment.task || "");
+      if (!key) return accumulator;
+      if (!accumulator[key]) accumulator[key] = [];
+      accumulator[key].push(attachment);
+      return accumulator;
+    }, {});
+  }, [taskAttachments]);
+  const negativeRemarkLinksByTaskId = useMemo(() => {
+    return negativeRemarkLinks.reduce((accumulator, link) => {
+      const key = String(link.task || "");
+      if (!key) return accumulator;
+      if (!accumulator[key]) accumulator[key] = [];
+      accumulator[key].push(link);
+      return accumulator;
+    }, {});
+  }, [negativeRemarkLinks]);
 
   const historyTask = useMemo(() => {
     if (!historyTaskId) return null;
@@ -683,6 +1035,22 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
     setHistoryOpen(true);
   }
 
+  function resetFilters() {
+    setSearchQuery("");
+    setSelectedClientIds(clients[0]?.id ? [String(clients[0].id)] : []);
+    setClientFilterQuery("");
+    setSelectedDesignerId(isDesigner ? currentUserId : "");
+    setDesignerFilterQuery("");
+    setDateFrom("");
+    setDateTo("");
+    setTargetDateFrom("");
+    setTargetDateTo("");
+    setShowOriginal(true);
+    setShowRevision(true);
+    setShowRedo(true);
+    setShowCompleted(true);
+  }
+
   function resetDrawerState() {
     setDrawerMode(null);
     setDrawerLoading(false);
@@ -745,24 +1113,36 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
     setTaskForm({
       ...EMPTY_TASK_FORM,
       clientId,
+      scopeOfWorkId: resolveScopeOfWorkId(baseTask, scopeOfWorkOptions),
       createdBy: currentUserId,
       createdByName: currentUser?.email || "",
       revisionOfId: originalTaskId,
       redoOfId: "",
       taskName: baseTask?.task_name || "",
       instructions: baseTask?.instructions || "",
+      instructionsSerialized: createSerializedFromText(baseTask?.instructions || ""),
       instructionsByArtDirector: baseTask?.InstructionsByArtDirector || "",
+      instructionsByArtDirectorSerialized: createSerializedFromText(baseTask?.InstructionsByArtDirector || ""),
+      revisionType: "",
       priority: baseTask?.priority || "medium",
       designerId: baseTask?.designer ? String(baseTask.designer) : "",
       typeOfWorkId: baseTask?.type_of_work ? String(baseTask.type_of_work) : "",
+      slides: baseTask?.slides === null || baseTask?.slides === undefined || baseTask?.slides === "" ? "1" : String(baseTask.slides),
       targetDate: baseTask?.target_date || new Date().toISOString().slice(0, 10),
       excellence:
         baseTask?.excellence === null || baseTask?.excellence === undefined || baseTask?.excellence === ""
           ? ""
           : String(baseTask.excellence),
+      excellenceReason: "",
       isMarkedCompletedByAccountPlanner: false,
       isMarkedCompletedByArtDirector: false,
       isMarkedCompletedByDesigner: false,
+      haveMajorChanges: false,
+      haveMinorChanges: false,
+      negativeRemarkIds: [],
+      negativeRemarkLinks: [],
+      attachments: [],
+      attachmentFiles: [],
     });
     setDrawerOpen(true);
     await loadOriginalTaskOptions(clientId);
@@ -782,24 +1162,36 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
     setTaskForm({
       ...EMPTY_TASK_FORM,
       clientId,
+      scopeOfWorkId: resolveScopeOfWorkId(baseTask, scopeOfWorkOptions),
       createdBy: currentUserId,
       createdByName: currentUser?.email || "",
       revisionOfId: "",
       redoOfId: redoTaskId,
       taskName: baseTask?.task_name || "",
       instructions: baseTask?.instructions || "",
+      instructionsSerialized: createSerializedFromText(baseTask?.instructions || ""),
       instructionsByArtDirector: baseTask?.InstructionsByArtDirector || "",
+      instructionsByArtDirectorSerialized: createSerializedFromText(baseTask?.InstructionsByArtDirector || ""),
+      revisionType: baseTask?.revision_type || "",
       priority: baseTask?.priority || "medium",
       designerId: baseTask?.designer ? String(baseTask.designer) : "",
       typeOfWorkId: baseTask?.type_of_work ? String(baseTask.type_of_work) : "",
+      slides: baseTask?.slides === null || baseTask?.slides === undefined || baseTask?.slides === "" ? "1" : String(baseTask.slides),
       targetDate: baseTask?.target_date || new Date().toISOString().slice(0, 10),
       excellence:
         baseTask?.excellence === null || baseTask?.excellence === undefined || baseTask?.excellence === ""
           ? ""
           : String(baseTask.excellence),
+      excellenceReason: "",
       isMarkedCompletedByAccountPlanner: false,
       isMarkedCompletedByArtDirector: false,
       isMarkedCompletedByDesigner: false,
+      haveMajorChanges: false,
+      haveMinorChanges: false,
+      negativeRemarkIds: [],
+      negativeRemarkLinks: [],
+      attachments: [],
+      attachmentFiles: [],
     });
     setDrawerOpen(true);
     await loadOriginalTaskOptions(clientId);
@@ -819,27 +1211,41 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
     try {
       const task = await superboardApi.tasks.retrieve(taskId);
       const clientId = String(task.client || selectedClientId || "");
+      const attachments = await superboardApi.taskAttachments.listAll({ task: task.id, page_size: 100 });
+      const existingRemarkLinks = negativeRemarkLinksByTaskId[String(task.id)] || [];
       setTaskForm({
         id: task.id,
         clientId,
+        scopeOfWorkId: resolveScopeOfWorkId(task, scopeOfWorkOptions),
         revisionOfId: task.revision_of ? String(task.revision_of) : "",
         redoOfId: task.redo_of ? String(task.redo_of) : "",
         createdBy: task.created_by ? String(task.created_by) : "",
         createdByName: task.created_by_name || "",
         taskName: task.task_name || "",
         instructions: task.instructions || "",
+        instructionsSerialized: createSerializedFromText(task.instructions || ""),
         instructionsByArtDirector: task.InstructionsByArtDirector || "",
+        instructionsByArtDirectorSerialized: createSerializedFromText(task.InstructionsByArtDirector || ""),
+        revisionType: task.revision_type || "",
         priority: task.priority || "medium",
         designerId: task.designer ? String(task.designer) : "",
         typeOfWorkId: task.type_of_work ? String(task.type_of_work) : "",
+        slides: task.slides === null || task.slides === undefined || task.slides === "" ? "1" : String(task.slides),
         targetDate: task.target_date || "",
         excellence:
           task.excellence === null || task.excellence === undefined || task.excellence === ""
             ? ""
             : String(task.excellence),
+        excellenceReason: task.excellence_reason || "",
         isMarkedCompletedByAccountPlanner: Boolean(task.is_marked_completed_by_account_planner),
         isMarkedCompletedByArtDirector: Boolean(task.is_marked_completed_by_art_director),
         isMarkedCompletedByDesigner: Boolean(task.is_marked_completed_by_designer),
+        haveMajorChanges: Boolean(task.have_major_changes),
+        haveMinorChanges: Boolean(task.have_minor_changes),
+        negativeRemarkIds: existingRemarkLinks.map((link) => String(link.negative_remark)),
+        negativeRemarkLinks: existingRemarkLinks,
+        attachments: Array.isArray(attachments) ? attachments : [],
+        attachmentFiles: [],
       });
       await loadOriginalTaskOptions(clientId);
     } catch (requestError) {
@@ -851,14 +1257,14 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
 
   async function handleCreateInlineTypeOfWork() {
     const workTypeName = inlineTypeOfWorkForm.workTypeName.trim();
-    const point = inlineTypeOfWorkForm.point.trim();
+    const point = isAccountPlanner ? "0.5" : inlineTypeOfWorkForm.point.trim();
 
     if (!workTypeName) {
       toast.error("Work type name is required.");
       return;
     }
 
-    if (!point) {
+    if (!isAccountPlanner && !point) {
       toast.error("Point is required.");
       return;
     }
@@ -872,7 +1278,7 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
       const allTypeOfWork = await superboardApi.typeOfWork.listAll({ page_size: 300 });
       setTypeOfWorkOptions(allTypeOfWork);
       setTaskForm((prev) => ({ ...prev, typeOfWorkId: String(created.id) }));
-      setInlineTypeOfWorkForm(EMPTY_INLINE_TYPE_OF_WORK_FORM);
+      setInlineTypeOfWorkForm(getEmptyInlineTypeOfWorkForm(isAccountPlanner));
       setInlineTypeOfWorkOpen(false);
       toast.success("Type of work created successfully.");
     } catch (requestError) {
@@ -903,6 +1309,18 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
         toast.error(message);
         return;
       }
+      if (!taskForm.scopeOfWorkId && !taskForm.revisionOfId && !taskForm.redoOfId) {
+        const message = "Scope Of Work is required.";
+        setDrawerError(message);
+        toast.error(message);
+        return;
+      }
+      if (isRevisionTaskForm && !taskForm.haveMajorChanges && !taskForm.haveMinorChanges) {
+        const message = "Revision changes are required.";
+        setDrawerError(message);
+        toast.error(message);
+        return;
+      }
     }
     setSavingTask(true);
     setDrawerError("");
@@ -915,8 +1333,11 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
       } else {
         payload = {
           task_name: trimmedTaskName,
+          scope_of_work: taskForm.scopeOfWorkId ? Number(taskForm.scopeOfWorkId) : null,
           priority: taskForm.priority,
           type_of_work: taskForm.typeOfWorkId ? Number(taskForm.typeOfWorkId) : null,
+          slides: taskForm.slides ? Number(taskForm.slides) : 1,
+          revision_type: taskForm.revisionType || "",
           target_date: taskForm.targetDate || null,
         };
 
@@ -929,8 +1350,14 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
           payload.InstructionsByArtDirector = taskForm.instructionsByArtDirector || null;
         }
 
-        if (canViewPoints) {
+        if (canEditExcellence) {
           payload.excellence = taskForm.excellence ? Number(taskForm.excellence) : null;
+          payload.excellence_reason = taskForm.excellenceReason.trim() || null;
+        }
+
+        if (isRevisionTaskForm) {
+          payload.have_major_changes = taskForm.haveMajorChanges;
+          payload.have_minor_changes = taskForm.haveMinorChanges;
         }
 
         if (!isAccountPlanner) {
@@ -965,11 +1392,70 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
       }
 
       if (drawerMode === "edit" && taskForm.id) {
-        await superboardApi.tasks.patch(taskForm.id, payload);
+        const updatedTask = await superboardApi.tasks.patch(taskForm.id, payload);
+        const taskId = updatedTask?.id || taskForm.id;
+        const selectedRemarkIds = new Set(taskForm.negativeRemarkIds.map(String));
+        const existingRemarkLinks = taskForm.negativeRemarkLinks || [];
+        await Promise.all(
+          existingRemarkLinks
+            .filter((link) => !selectedRemarkIds.has(String(link.negative_remark)))
+            .map((link) => superboardApi.negativeRemarksOnTask.remove(link.id)),
+        );
+        await Promise.all(
+          Array.from(selectedRemarkIds)
+            .filter((remarkId) => !existingRemarkLinks.some((link) => String(link.negative_remark) === String(remarkId)))
+            .map((remarkId) =>
+              superboardApi.negativeRemarksOnTask.create({
+                task: taskId,
+                negative_remark: Number(remarkId),
+              }),
+            ),
+        );
         toast.success("Task updated successfully.");
       } else {
-        await superboardApi.tasks.create(payload);
+        const createdTask = await superboardApi.tasks.create(payload);
+        if (taskForm.negativeRemarkIds.length > 0) {
+          await Promise.all(
+            taskForm.negativeRemarkIds.map((remarkId) =>
+              superboardApi.negativeRemarksOnTask.create({
+                task: createdTask.id,
+                negative_remark: Number(remarkId),
+              }),
+            ),
+          );
+        }
+        if (taskForm.attachmentFiles.length > 0) {
+          await Promise.all(
+            taskForm.attachmentFiles.map(async (file) => {
+              const formData = new FormData();
+              formData.append("task", String(createdTask.id));
+              formData.append("file", file);
+              await superboardApi.taskAttachments.create(formData);
+            }),
+          );
+          toast.success(
+            taskForm.attachmentFiles.length === 1
+              ? "Task attachment uploaded successfully."
+              : `${taskForm.attachmentFiles.length} task attachments uploaded successfully.`,
+          );
+        }
         toast.success("Task created successfully.");
+      }
+
+      if (drawerMode === "edit" && taskForm.id && taskForm.attachmentFiles.length > 0) {
+        await Promise.all(
+          taskForm.attachmentFiles.map(async (file) => {
+            const formData = new FormData();
+            formData.append("task", String(taskForm.id));
+            formData.append("file", file);
+            await superboardApi.taskAttachments.create(formData);
+          }),
+        );
+        toast.success(
+          taskForm.attachmentFiles.length === 1
+            ? "Task attachment uploaded successfully."
+            : `${taskForm.attachmentFiles.length} task attachments uploaded successfully.`,
+        );
       }
 
       setReloadTick((value) => value + 1);
@@ -1002,6 +1488,49 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
     }
   }
 
+  async function handleDeleteHistoryTask(taskId) {
+    if (!taskId || !window.confirm("Delete this task?")) return;
+    const task = taskById.get(String(taskId));
+    if (!task || !canManageTask(task)) {
+      toast.error("You do not have permission to delete this task.");
+      return;
+    }
+    setDeletingHistoryTaskId(String(taskId));
+    try {
+      await superboardApi.tasks.remove(taskId);
+      toast.success("Task deleted successfully.");
+      setReloadTick((value) => value + 1);
+      setHistoryOpen(false);
+      setHistoryTaskId(null);
+    } catch (requestError) {
+      toast.error(requestError.message || "Failed to delete task.");
+    } finally {
+      setDeletingHistoryTaskId(null);
+    }
+  }
+
+  async function handleDeleteTaskAttachment(attachmentId) {
+    if (!attachmentId) return;
+    if (!window.confirm("Delete this attachment?")) return;
+
+    setDeletingTaskAttachmentId(String(attachmentId));
+    setDrawerError("");
+    try {
+      await superboardApi.taskAttachments.remove(attachmentId);
+      setTaskForm((prev) => ({
+        ...prev,
+        attachments: prev.attachments.filter((attachment) => String(attachment.id) !== String(attachmentId)),
+      }));
+      toast.success("Attachment deleted successfully.");
+    } catch (requestError) {
+      const message = requestError.message || "Failed to delete attachment.";
+      setDrawerError(message);
+      toast.error(message);
+    } finally {
+      setDeletingTaskAttachmentId(null);
+    }
+  }
+
   async function handleToggleDesignerCompletion(task, checked) {
     if (!canDesignerEditTask(task)) {
       setDrawerError("You do not have permission to update this task.");
@@ -1031,70 +1560,64 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
 
   const visibleTasks = useMemo(() => {
     return [...filteredTasks].sort((a, b) => {
-      const aDate = new Date(getTaskDateValue(a) || a.created_at || 0).getTime();
-      const bDate = new Date(getTaskDateValue(b) || b.created_at || 0).getTime();
+      const aDate = new Date(a.created_at || 0).getTime();
+      const bDate = new Date(b.created_at || 0).getTime();
       if (aDate !== bDate) return bDate - aDate;
       return Number(b.id || 0) - Number(a.id || 0);
     });
   }, [filteredTasks]);
-  const yearOptions = useMemo(() => {
-    const years = Array.from(
-      new Set(
-        visibleTasks
-          .map((task) => getDateParts(task.created_at)?.year)
-          .filter((year) => Number.isInteger(year)),
-      ),
-    ).sort((a, b) => b - a);
-    return years.length ? years : [selectedYear];
-  }, [selectedYear, visibleTasks]);
-  const monthOptions = useMemo(() => {
-    const months = Array.from(
-      new Set(
-        visibleTasks
-          .map((task) => getDateParts(task.created_at))
-          .filter((parts) => parts?.year === selectedYear)
-          .map((parts) => parts.month),
-      ),
-    ).sort((a, b) => a - b);
-    return months.length ? months : [selectedMonth];
-  }, [selectedMonth, selectedYear, visibleTasks]);
-
-  useEffect(() => {
-    if (!yearOptions.includes(selectedYear)) {
-      setSelectedYear(yearOptions[0]);
-    }
-  }, [selectedYear, yearOptions]);
-
-  useEffect(() => {
-    if (!monthOptions.includes(selectedMonth)) {
-      setSelectedMonth(monthOptions[0]);
-    }
-  }, [monthOptions, selectedMonth]);
 
   const dateSlides = useMemo(() => {
-    const totalDaysInMonth = new Date(selectedYear, selectedMonth + 1, 0).getDate();
+    let effectiveDateFrom = dateFrom;
+    let effectiveDateTo = dateTo;
 
-    return Array.from({ length: totalDaysInMonth }, (_, index) => {
-      const day = index + 1;
-      const mm = String(selectedMonth + 1).padStart(2, "0");
-      const dd = String(day).padStart(2, "0");
-      const dateKey = `${selectedYear}-${mm}-${dd}`;
-      const dateObj = new Date(selectedYear, selectedMonth, day);
-      const tasksForDate = visibleTasks.filter((task) => getIsoDateKey(task.created_at) === dateKey);
+    if (!effectiveDateFrom || !effectiveDateTo) {
+      const createdDates = visibleTasks
+        .map((task) => getTaskCreatedDateKey(task))
+        .filter(Boolean)
+        .sort();
 
-      return {
+      if (createdDates.length === 0) return [];
+      effectiveDateFrom = effectiveDateFrom || createdDates[0];
+      effectiveDateTo = effectiveDateTo || createdDates[createdDates.length - 1];
+    }
+
+    if (!effectiveDateFrom || !effectiveDateTo || effectiveDateFrom > effectiveDateTo) return [];
+
+    const slides = [];
+    const cursor = new Date(`${effectiveDateFrom}T00:00:00`);
+    const end = new Date(`${effectiveDateTo}T00:00:00`);
+
+    while (cursor.getTime() <= end.getTime()) {
+      const year = cursor.getFullYear();
+      const monthIndex = cursor.getMonth();
+      const day = cursor.getDate();
+      const dateKey = `${year}-${String(monthIndex + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      const tasksForDate = visibleTasks.filter((task) => getTaskCreatedDateKey(task) === dateKey);
+
+      slides.push({
         dateKey,
         day,
-        weekDay: DAY_SHORT[dateObj.getDay()],
-        monthLabel: MONTH_NAMES[selectedMonth],
-        year: selectedYear,
+        weekDay: DAY_SHORT[cursor.getDay()],
+        monthLabel: MONTH_NAMES[monthIndex],
+        year,
         tasks: tasksForDate,
-      };
-    });
-  }, [selectedMonth, selectedYear, visibleTasks]);
+      });
+
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    return slides;
+  }, [dateFrom, dateTo, visibleTasks]);
 
   const loading = loadingClients || loadingTasks;
   const error = clientsError || tasksError;
+  const headerActions = (
+    <Button type="button" variant="outline" className="rounded-full" onClick={() => setFilterDrawerOpen(true)}>
+      <Search className="h-4 w-4" />
+      Search & Filter
+    </Button>
+  );
 
   // Determine which tasks are parents of revisions or redos for the stacked card UI
   const taskIdsThatAreParentsOfRevisionsOrRedos = useMemo(() => {
@@ -1115,74 +1638,29 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
       <SidebarProvider className="min-h-screen [--header-height:calc(theme(spacing.14))]">
         <AppSidebar variant="inset" />
         <SidebarInset className="min-w-0 overflow-x-hidden">
-          <SiteHeader title={headerTitle} />
+          <SiteHeader title={headerTitle} actions={headerActions} />
           <div className="flex min-w-0 flex-1 flex-col overflow-x-hidden bg-background p-4 lg:p-6">
             <div className="mb-4 rounded-xl border border-border bg-card p-4 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div className="flex min-w-[260px] flex-wrap items-center gap-3">
-                {currentUserRole !== "designer" ? (
                   <>
                     <label htmlFor="client-select" className="text-sm font-semibold text-muted-foreground">
                       Client
                     </label>
-                    <Select value={selectedClientId || undefined} onValueChange={setSelectedClientId}>
+                    <Select value={selectedClientId || undefined} onValueChange={(value) => setSelectedClientIds(value ? [String(value)] : [])}>
                       <SelectTrigger id="client-select" className="h-11 min-w-[300px] rounded-xl px-4 text-sm shadow-sm">
                         <SelectValue placeholder="Select client" />
                       </SelectTrigger>
                       <SelectContent className="max-h-72">
-                      {clients.map((client) => (
-                        <SelectItem key={String(client.id)} value={String(client.id)}>
-                          {getClientName(client)}
-                        </SelectItem>
-                      ))}
+                        {clients.map((client) => (
+                          <SelectItem key={String(client.id)} value={String(client.id)}>
+                            {getClientName(client)}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </>
-                ) : null}
-                {currentUserRole !== "designer" ? (
-                  <Select
-                    value={selectedDesignerId || "__none__"}
-                    onValueChange={(value) => setSelectedDesignerId(value === "__none__" ? "" : value)}>
-                    <SelectTrigger className="h-11 min-w-[220px] rounded-xl px-4 text-sm shadow-sm" aria-label="Select designer">
-                      <SelectValue placeholder="All designers" />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-72">
-                    <SelectItem value="__none__">All designers</SelectItem>
-                    {designerOptions.map((designer) => (
-                      <SelectItem key={String(designer.id)} value={String(designer.id)}>
-                        {designer.first_name || designer.last_name
-                          ? `${designer.first_name || ""} ${designer.last_name || ""}`.trim()
-                          : designer.email}
-                      </SelectItem>
-                    ))}
-                    </SelectContent>
-                  </Select>
-                ) : null}
-                <Select value={String(selectedMonth)} onValueChange={(value) => setSelectedMonth(Number(value))}>
-                  <SelectTrigger className="h-11 w-[180px] rounded-xl px-4 text-sm shadow-sm" aria-label="Select month">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-72">
-                    {monthOptions.map((monthIndex) => (
-                      <SelectItem key={MONTH_NAMES[monthIndex]} value={String(monthIndex)}>
-                        {MONTH_NAMES[monthIndex]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={String(selectedYear)} onValueChange={(value) => setSelectedYear(Number(value))}>
-                  <SelectTrigger className="h-11 w-[140px] rounded-xl px-4 text-sm shadow-sm" aria-label="Select year">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-72">
-                    {yearOptions.map((year) => (
-                      <SelectItem key={year} value={String(year)}>
-                        {year}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+                </div>
 
               <div className="flex flex-wrap items-center gap-2">
                 {canCreateTask ? (
@@ -1216,8 +1694,321 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
               </div>
             </div>
 
+            <Sheet open={filterDrawerOpen} onOpenChange={setFilterDrawerOpen}>
+              <SheetContent side="right" className="flex h-full flex-col overflow-hidden p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-[768px]">
+                <SheetHeader className="border-b border-border px-6 py-6">
+                  <SheetTitle>Search & Filter</SheetTitle>
+                  <SheetDescription>Refine the Task Manager list by name, client, designer, created date, target date, and task type.</SheetDescription>
+                </SheetHeader>
+                <div className="flex-1 overflow-y-auto px-6 py-6">
+                  <div className="space-y-5 rounded-2xl border border-border/80 bg-card p-4 shadow-sm">
+                    <div className="space-y-2">
+                      <Label htmlFor="task-manager-search" className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                        Search by Task Name
+                      </Label>
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          id="task-manager-search"
+                          placeholder="Search tasks by name..."
+                          value={searchQuery}
+                          onChange={(event) => setSearchQuery(event.target.value)}
+                          className="h-11 rounded-xl bg-background pl-10 shadow-sm"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="task-manager-client-filter" className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                        Filter by Client
+                      </Label>
+                      <div className="relative" ref={clientFilterRef}>
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          className="flex min-h-11 w-full items-center justify-between rounded-xl border border-border bg-background px-4 py-3 text-left shadow-sm transition hover:bg-muted/40"
+                          onClick={() => setClientFilterOpen((open) => !open)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              setClientFilterOpen((open) => !open);
+                            }
+                          }}>
+                          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                            {selectedClientValues.length > 0 ? (
+                              selectedClientValues.map((client) => (
+                                <Badge key={client.id} variant="secondary" className="h-8 rounded-full px-3 text-sm">
+                                  <span className="truncate max-w-44">{client.name}</span>
+                                  <button
+                                    type="button"
+                                    className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground transition hover:text-foreground"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      setSelectedClientIds((prev) => prev.filter((id) => id !== client.id));
+                                    }}>
+                                    <X className="h-3 w-3" />
+                                  </button>
+                                </Badge>
+                              ))
+                            ) : (
+                              <span className="text-sm text-muted-foreground">Select clients</span>
+                            )}
+                          </div>
+                          <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition ${clientFilterOpen ? "rotate-180" : ""}`} />
+                        </div>
+
+                        {clientFilterOpen ? (
+                          <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-20 rounded-2xl border border-border bg-popover p-3 shadow-xl">
+                            <Input
+                              value={clientFilterQuery}
+                              onChange={(event) => setClientFilterQuery(event.target.value)}
+                              placeholder="Search clients..."
+                              className="h-10 rounded-lg"
+                            />
+                            <div className="mt-3 max-h-64 space-y-1 overflow-y-auto">
+                              {visibleClientOptions.length > 0 ? (
+                                visibleClientOptions.map((client) => {
+                                  const isChecked = selectedClientIds.includes(client.id);
+                                  return (
+                                    <div
+                                      key={client.id}
+                                      role="button"
+                                      tabIndex={0}
+                                      className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition hover:bg-muted"
+                                      onClick={() =>
+                                        setSelectedClientIds((prev) =>
+                                          prev.includes(client.id) ? prev.filter((id) => id !== client.id) : [...prev, client.id],
+                                        )
+                                      }
+                                      onKeyDown={(event) => {
+                                        if (event.key === "Enter" || event.key === " ") {
+                                          event.preventDefault();
+                                          setSelectedClientIds((prev) =>
+                                            prev.includes(client.id) ? prev.filter((id) => id !== client.id) : [...prev, client.id],
+                                          );
+                                        }
+                                      }}>
+                                      <div className="flex items-center gap-3">
+                                        <Checkbox checked={isChecked} tabIndex={-1} className="pointer-events-none" />
+                                        <span className="text-sm font-medium text-foreground">{client.name}</span>
+                                      </div>
+                                      {isChecked ? <Check className="h-4 w-4 text-primary" /> : null}
+                                    </div>
+                                  );
+                                })
+                              ) : (
+                                <div className="rounded-xl border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
+                                  No clients found.
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    {currentUserRole !== "designer" && currentUserRole !== "account_planner" ? (
+                      <div className="space-y-2">
+                        <Label htmlFor="task-manager-designer-filter" className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                          Filter by Designer
+                        </Label>
+                        <div className="relative" ref={designerFilterRef}>
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            className="flex min-h-11 w-full items-center justify-between rounded-xl border border-border bg-background px-4 py-3 text-left shadow-sm transition hover:bg-muted/40"
+                            onClick={() => setDesignerFilterOpen((open) => !open)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                setDesignerFilterOpen((open) => !open);
+                              }
+                            }}>
+                            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                              {selectedDesignerId ? (
+                                (() => {
+                                  const selectedDesigner = designerOptions.find((designer) => String(designer.id) === String(selectedDesignerId));
+                                  const label = selectedDesigner
+                                    ? selectedDesigner.first_name || selectedDesigner.last_name
+                                      ? `${selectedDesigner.first_name || ""} ${selectedDesigner.last_name || ""}`.trim()
+                                      : selectedDesigner.email
+                                    : "Selected designer";
+                                  return (
+                                    <Badge variant="secondary" className="h-8 rounded-full px-3 text-sm">
+                                      <span className="truncate max-w-44">{label}</span>
+                                      <button
+                                        type="button"
+                                        className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground transition hover:text-foreground"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          setSelectedDesignerId("");
+                                        }}>
+                                        <X className="h-3 w-3" />
+                                      </button>
+                                    </Badge>
+                                  );
+                                })()
+                              ) : (
+                                <span className="text-sm text-muted-foreground">All designers</span>
+                              )}
+                            </div>
+                            <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition ${designerFilterOpen ? "rotate-180" : ""}`} />
+                          </div>
+
+                          {designerFilterOpen ? (
+                            <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-20 rounded-2xl border border-border bg-popover p-3 shadow-xl">
+                              <Input
+                                value={designerFilterQuery}
+                                onChange={(event) => setDesignerFilterQuery(event.target.value)}
+                                placeholder="Search designers..."
+                                className="h-10 rounded-lg"
+                              />
+                              <div className="mt-3 max-h-64 space-y-1 overflow-y-auto">
+                                <div
+                                  role="button"
+                                  tabIndex={0}
+                                  className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition hover:bg-muted"
+                                  onClick={() => setSelectedDesignerId("")}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter" || event.key === " ") {
+                                      event.preventDefault();
+                                      setSelectedDesignerId("");
+                                    }
+                                  }}>
+                                  <div className="flex items-center gap-3">
+                                    <Checkbox checked={!selectedDesignerId} tabIndex={-1} className="pointer-events-none" />
+                                    <span className="text-sm font-medium text-foreground">All designers</span>
+                                  </div>
+                                  {!selectedDesignerId ? <Check className="h-4 w-4 text-primary" /> : null}
+                                </div>
+                                {visibleDesignerOptions.length > 0 ? (
+                                  visibleDesignerOptions.map((designer) => {
+                                    const label = designer.first_name || designer.last_name
+                                      ? `${designer.first_name || ""} ${designer.last_name || ""}`.trim()
+                                      : designer.email;
+                                    const isChecked = String(selectedDesignerId) === String(designer.id);
+                                    return (
+                                      <div
+                                        key={String(designer.id)}
+                                        role="button"
+                                        tabIndex={0}
+                                        className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition hover:bg-muted"
+                                        onClick={() => setSelectedDesignerId(String(designer.id))}
+                                        onKeyDown={(event) => {
+                                          if (event.key === "Enter" || event.key === " ") {
+                                            event.preventDefault();
+                                            setSelectedDesignerId(String(designer.id));
+                                          }
+                                        }}>
+                                        <div className="flex items-center gap-3">
+                                          <Checkbox checked={isChecked} tabIndex={-1} className="pointer-events-none" />
+                                          <span className="text-sm font-medium text-foreground">{label}</span>
+                                        </div>
+                                        {isChecked ? <Check className="h-4 w-4 text-primary" /> : null}
+                                      </div>
+                                    );
+                                  })
+                                ) : (
+                                  <div className="rounded-xl border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
+                                    No designers found.
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="task-manager-date-from" className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                          Created Date From
+                        </Label>
+                        <Input
+                          id="task-manager-date-from"
+                          type="date"
+                          value={dateFrom}
+                          onChange={(event) => setDateFrom(event.target.value)}
+                          className="h-11 rounded-xl bg-background shadow-sm"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="task-manager-date-to" className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                          Created Date To
+                        </Label>
+                        <Input
+                          id="task-manager-date-to"
+                          type="date"
+                          value={dateTo}
+                          onChange={(event) => setDateTo(event.target.value)}
+                          className="h-11 rounded-xl bg-background shadow-sm"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="task-manager-target-date-from" className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                          Target Date From
+                        </Label>
+                        <Input
+                          id="task-manager-target-date-from"
+                          type="date"
+                          value={targetDateFrom}
+                          onChange={(event) => setTargetDateFrom(event.target.value)}
+                          className="h-11 rounded-xl bg-background shadow-sm"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="task-manager-target-date-to" className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                          Target Date To
+                        </Label>
+                        <Input
+                          id="task-manager-target-date-to"
+                          type="date"
+                          value={targetDateTo}
+                          onChange={(event) => setTargetDateTo(event.target.value)}
+                          className="h-11 rounded-xl bg-background shadow-sm"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Show Task Types</p>
+                      <label className="flex items-center gap-3 rounded-xl border border-border/70 bg-background px-3 py-3">
+                        <Checkbox checked={showOriginal} onCheckedChange={(checked) => setShowOriginal(Boolean(checked))} />
+                        <span className="text-sm text-foreground">Show original tasks</span>
+                      </label>
+                      <label className="flex items-center gap-3 rounded-xl border border-border/70 bg-background px-3 py-3">
+                        <Checkbox checked={showRevision} onCheckedChange={(checked) => setShowRevision(Boolean(checked))} />
+                        <span className="text-sm text-foreground">Show revision tasks</span>
+                      </label>
+                      <label className="flex items-center gap-3 rounded-xl border border-border/70 bg-background px-3 py-3">
+                        <Checkbox checked={showRedo} onCheckedChange={(checked) => setShowRedo(Boolean(checked))} />
+                        <span className="text-sm text-foreground">Show redo tasks</span>
+                      </label>
+                      <label className="flex items-center gap-3 rounded-xl border border-border/70 bg-background px-3 py-3">
+                        <Checkbox checked={showCompleted} onCheckedChange={(checked) => setShowCompleted(Boolean(checked))} />
+                        <span className="text-sm text-foreground">Show completed tasks</span>
+                      </label>
+                    </div>
+
+                    <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
+                      <Button type="button" variant="outline" className="rounded-xl" onClick={resetFilters}>
+                        Clear all filters
+                      </Button>
+                      <Button type="button" className="rounded-xl" onClick={() => setFilterDrawerOpen(false)}>
+                        Show {visibleTasks.length} task(s)
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </SheetContent>
+            </Sheet>
+
             <Sheet open={drawerOpen} onOpenChange={handleDrawerOpenChange}>
-            <SheetContent side="right" className="flex h-full w-full flex-col overflow-hidden p-0 sm:max-w-xl">
+            <SheetContent side="right" className="flex h-full flex-col overflow-hidden p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-[768px]">
               <SheetHeader className="px-6 pt-6">
                   <SheetTitle>{drawerMode === "edit" ? "Edit task" : "Create task"}</SheetTitle>
                   <SheetDescription>
@@ -1233,77 +2024,124 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
                   {drawerLoading ? <p className="text-sm text-muted-foreground">Loading task...</p> : null}
                   {!drawerLoading ? (
                     <form className="space-y-4 rounded-lg border p-3" onSubmit={handleSaveTask}>
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label htmlFor="task-client">Client</Label>
+                          <Select
+                            value={taskForm.clientId || undefined}
+                            disabled={drawerMode === "edit" || currentUserRole === "designer"}
+                            onValueChange={(nextClientId) => {
+                              setTaskForm((prev) => ({
+                                ...prev,
+                                clientId: nextClientId,
+                                scopeOfWorkId:
+                                  scopeOfWorkOptions.some(
+                                    (item) =>
+                                      String(item.client || item.client_id || "") === String(nextClientId) &&
+                                      String(item.id) === String(prev.scopeOfWorkId),
+                                  )
+                                    ? prev.scopeOfWorkId
+                                    : "",
+                                revisionOfId: "",
+                                redoOfId: "",
+                              }));
+                              loadOriginalTaskOptions(nextClientId);
+                            }}>
+                            <SelectTrigger
+                              id="task-client"
+                              className={`h-9 w-full rounded-md ${
+                                drawerMode === "edit" || currentUserRole === "designer" ? "bg-muted text-muted-foreground" : ""
+                              }`}>
+                              <SelectValue placeholder="Select client" />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-72">
+                            {clients.map((client) => (
+                              <SelectItem key={String(client.id)} value={String(client.id)}>
+                                {getClientName(client)}
+                              </SelectItem>
+                            ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="task-name">Task name</Label>
+                          <Input
+                            id="task-name"
+                            value={taskForm.taskName}
+                            required
+                            className={isReadOnlyTaskForm ? "bg-muted text-muted-foreground" : ""}
+                            disabled={isReadOnlyTaskForm}
+                            onChange={(event) => setTaskForm((prev) => ({ ...prev, taskName: event.target.value }))}
+                          />
+                        </div>
+                      </div>
+
                       <div className="space-y-2">
-                        <Label htmlFor="task-client">Client</Label>
+                        <Label htmlFor="task-scope-of-work">Scope Of Work</Label>
                         <Select
-                          value={taskForm.clientId || undefined}
-                          disabled={drawerMode === "edit" || currentUserRole === "designer"}
-                          onValueChange={(nextClientId) => {
-                            setTaskForm((prev) => ({ ...prev, clientId: nextClientId, revisionOfId: "", redoOfId: "" }));
-                            loadOriginalTaskOptions(nextClientId);
-                          }}>
-                          <SelectTrigger
-                            id="task-client"
-                            className={`h-9 w-full rounded-md ${
-                              drawerMode === "edit" || currentUserRole === "designer" ? "bg-muted text-muted-foreground" : ""
-                            }`}>
-                            <SelectValue placeholder="Select client" />
+                          value={taskForm.scopeOfWorkId || "__none__"}
+                          disabled={isReadOnlyTaskForm}
+                          onValueChange={(value) =>
+                            setTaskForm((prev) => ({ ...prev, scopeOfWorkId: value === "__none__" ? "" : value }))
+                          }>
+                          <SelectTrigger id="task-scope-of-work" className={`h-9 w-full rounded-md ${isReadOnlyTaskForm ? "bg-muted text-muted-foreground" : ""}`}>
+                            <SelectValue placeholder="Select scope of work" />
                           </SelectTrigger>
                           <SelectContent className="max-h-72">
-                          {clients.map((client) => (
-                            <SelectItem key={String(client.id)} value={String(client.id)}>
-                              {getClientName(client)}
-                            </SelectItem>
-                          ))}
+                            <SelectItem value="__none__">No scope selected</SelectItem>
+                            {filteredScopeOfWorkOptions.map((item) => (
+                              <SelectItem key={String(item.id)} value={String(item.id)}>
+                                {item.deliverable_name || item.scope_of_work_name || `Scope #${item.id}`}
+                              </SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="task-name">Task name</Label>
-                        <Input
-                          id="task-name"
-                          value={taskForm.taskName}
-                          required
-                          className={isReadOnlyTaskForm ? "bg-muted text-muted-foreground" : ""}
-                          disabled={isReadOnlyTaskForm}
-                          onChange={(event) => setTaskForm((prev) => ({ ...prev, taskName: event.target.value }))}
-                        />
-                      </div>
-
-                      <div className="space-y-2">
                         <Label htmlFor="task-instructions">Instructions / Brief by Brand</Label>
-                        <textarea
-                          id="task-instructions"
-                          className={`min-h-24 w-full rounded-md border px-3 py-2 text-sm ${
-                            isReadOnlyTaskForm
-                                ? "cursor-not-allowed bg-muted text-muted-foreground"
-                                : "bg-background"
-                          }`}
-                          value={taskForm.instructions}
-                          disabled={isReadOnlyTaskForm}
-                          onChange={(event) => setTaskForm((prev) => ({ ...prev, instructions: event.target.value }))}
-                        />
+                        {isReadOnlyTaskForm ? (
+                          <textarea
+                            id="task-instructions"
+                            className="min-h-24 w-full rounded-md border bg-muted px-3 py-2 text-sm text-muted-foreground"
+                            value={taskForm.instructions}
+                            disabled
+                          />
+                        ) : (
+                          <Editor
+                            editorSerializedState={taskForm.instructionsSerialized}
+                            onSerializedChange={(value) => setTaskForm((prev) => ({ ...prev, instructionsSerialized: value }))}
+                            onPlainTextChange={(value) => setTaskForm((prev) => ({ ...prev, instructions: value }))}
+                          />
+                        )}
                       </div>
 
                       {!isAccountPlanner ? (
                         <div className="space-y-2">
                           <Label htmlFor="task-instructions-by-art-director">Instructions By Art Director</Label>
-                          <textarea
-                            id="task-instructions-by-art-director"
-                            className={`min-h-24 w-full rounded-md border px-3 py-2 text-sm ${
-                              isReadOnlyTaskForm ? "cursor-not-allowed bg-muted text-muted-foreground" : "bg-background"
-                            }`}
-                            value={taskForm.instructionsByArtDirector}
-                            disabled={isReadOnlyTaskForm}
-                            onChange={(event) =>
-                              setTaskForm((prev) => ({ ...prev, instructionsByArtDirector: event.target.value }))
-                            }
-                          />
+                          {isReadOnlyTaskForm ? (
+                            <textarea
+                              id="task-instructions-by-art-director"
+                              className="min-h-24 w-full rounded-md border bg-muted px-3 py-2 text-sm text-muted-foreground"
+                              value={taskForm.instructionsByArtDirector}
+                              disabled
+                            />
+                          ) : (
+                            <Editor
+                              editorSerializedState={taskForm.instructionsByArtDirectorSerialized}
+                              onSerializedChange={(value) =>
+                                setTaskForm((prev) => ({ ...prev, instructionsByArtDirectorSerialized: value }))
+                              }
+                              onPlainTextChange={(value) =>
+                                setTaskForm((prev) => ({ ...prev, instructionsByArtDirector: value }))
+                              }
+                            />
+                          )}
                         </div>
                       ) : null}
 
-                      <div className={`grid grid-cols-1 gap-4 ${canViewPoints ? "md:grid-cols-2" : ""}`}>
+                      <div className={`grid grid-cols-1 gap-4 ${canEditExcellence ? "md:grid-cols-4" : "md:grid-cols-3"}`}>
                         <div className="space-y-2">
                           <Label htmlFor="task-priority">Priority</Label>
                           <Select
@@ -1322,32 +2160,159 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
                             </SelectContent>
                           </Select>
                         </div>
-                        {canViewPoints ? (
-                          <div className="grid grid-cols-1 gap-4">
-                            <div className="space-y-2">
-                              <Label htmlFor="task-excellence">Excellence</Label>
-                              <Select
-                                value={taskForm.excellence || "__none__"}
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between gap-3">
+                            <Label htmlFor="task-type-of-work">Type Of Work</Label>
+                            {canManageTypeOfWork ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                className="h-auto px-0 py-0 text-sm font-medium"
                                 disabled={isReadOnlyTaskForm}
-                                onValueChange={(value) =>
-                                  setTaskForm((prev) => ({ ...prev, excellence: value === "__none__" ? "" : value }))
-                                }>
-                                <SelectTrigger id="task-excellence" className={`h-9 w-full rounded-md ${isReadOnlyTaskForm ? "bg-muted text-muted-foreground" : ""}`}>
-                                  <SelectValue placeholder="Select excellence" />
-                                </SelectTrigger>
-                                <SelectContent className="max-h-72">
-                                <SelectItem value="__none__">Select excellence</SelectItem>
-                                {EXCELLENCE_OPTIONS.map((option) => (
-                                  <SelectItem key={option} value={option}>
-                                    {option}
-                                  </SelectItem>
-                                ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
+                                onClick={() => {
+                                  setInlineTypeOfWorkOpen((prev) => !prev);
+                                  setInlineTypeOfWorkForm(getEmptyInlineTypeOfWorkForm(isAccountPlanner));
+                                }}>
+                                <Plus className="h-4 w-4" />
+                                Add new
+                              </Button>
+                            ) : null}
+                          </div>
+                          <Select
+                            value={taskForm.typeOfWorkId || "__none__"}
+                            disabled={isReadOnlyTaskForm}
+                            onValueChange={(value) =>
+                              setTaskForm((prev) => ({ ...prev, typeOfWorkId: value === "__none__" ? "" : value }))
+                            }>
+                            <SelectTrigger id="task-type-of-work" className={`h-9 w-full rounded-md ${isReadOnlyTaskForm ? "bg-muted text-muted-foreground" : ""}`}>
+                              <SelectValue placeholder="Select type of work" />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-72">
+                            <SelectItem value="__none__">Select type of work</SelectItem>
+                            {typeOfWorkOptions.map((item) => (
+                              <SelectItem key={String(item.id)} value={String(item.id)}>
+                                {item.work_type_name}
+                              </SelectItem>
+                            ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="task-slides">Slides</Label>
+                          <Input
+                            id="task-slides"
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={taskForm.slides}
+                            disabled={isReadOnlyTaskForm}
+                            onChange={(event) => setTaskForm((prev) => ({ ...prev, slides: event.target.value }))}
+                            className={isReadOnlyTaskForm ? "bg-muted text-muted-foreground" : ""}
+                          />
+                        </div>
+
+                        {canEditExcellence ? (
+                          <div className="space-y-2">
+                            <Label htmlFor="task-excellence">Excellence</Label>
+                            <Select
+                              value={taskForm.excellence || "__none__"}
+                              disabled={isReadOnlyTaskForm}
+                              onValueChange={(value) =>
+                                setTaskForm((prev) => ({ ...prev, excellence: value === "__none__" ? "" : value }))
+                              }>
+                              <SelectTrigger id="task-excellence" className={`h-9 w-full rounded-md ${isReadOnlyTaskForm ? "bg-muted text-muted-foreground" : ""}`}>
+                                <SelectValue placeholder="Select excellence" />
+                              </SelectTrigger>
+                              <SelectContent className="max-h-72">
+                              <SelectItem value="__none__">Select excellence</SelectItem>
+                              {EXCELLENCE_OPTIONS.map((option) => (
+                                <SelectItem key={option} value={option}>
+                                  {option}
+                                </SelectItem>
+                              ))}
+                              </SelectContent>
+                            </Select>
                           </div>
                         ) : null}
                       </div>
+
+                      {canEditExcellence ? (
+                        <div className="space-y-2">
+                          <Label htmlFor="task-excellence-reason">Excellence Reason</Label>
+                          <textarea
+                            id="task-excellence-reason"
+                            className={`min-h-24 w-full rounded-md border px-3 py-2 text-sm ${isReadOnlyTaskForm ? "bg-muted text-muted-foreground" : "bg-background"}`}
+                            value={taskForm.excellenceReason}
+                            disabled={isReadOnlyTaskForm}
+                            onChange={(event) => setTaskForm((prev) => ({ ...prev, excellenceReason: event.target.value }))}
+                          />
+                        </div>
+                      ) : null}
+
+                      {inlineTypeOfWorkOpen ? (
+                        <div className="rounded-2xl border border-border/80 bg-muted/20 p-4">
+                          <div className="mb-3 flex items-center justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-semibold text-foreground">Create New Type Of Work</p>
+                              <p className="text-xs text-muted-foreground">Add it here and use it immediately for this task.</p>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-1 gap-3">
+                            <div className="space-y-2">
+                              <Label htmlFor="inline-type-of-work-name" className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                                Work Type Name
+                              </Label>
+                              <Input
+                                id="inline-type-of-work-name"
+                                value={inlineTypeOfWorkForm.workTypeName}
+                                onChange={(event) =>
+                                  setInlineTypeOfWorkForm((prev) => ({ ...prev, workTypeName: event.target.value }))
+                                }
+                                placeholder="Enter work type name"
+                                className="h-11"
+                              />
+                            </div>
+                            {!isAccountPlanner ? (
+                              <div className="space-y-2">
+                                <Label htmlFor="inline-type-of-work-point" className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                                  Point
+                                </Label>
+                                <Input
+                                  id="inline-type-of-work-point"
+                                  type="number"
+                                  step="any"
+                                  value={inlineTypeOfWorkForm.point}
+                                  onChange={(event) =>
+                                    setInlineTypeOfWorkForm((prev) => ({ ...prev, point: event.target.value }))
+                                  }
+                                  placeholder="0"
+                                  className="h-11"
+                                />
+                              </div>
+                            ) : null}
+                          </div>
+                          <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="rounded-xl"
+                              onClick={() => {
+                                setInlineTypeOfWorkOpen(false);
+                                setInlineTypeOfWorkForm(getEmptyInlineTypeOfWorkForm(isAccountPlanner));
+                              }}>
+                              Cancel
+                            </Button>
+                            <Button
+                              type="button"
+                              className="rounded-xl"
+                              onClick={handleCreateInlineTypeOfWork}
+                              disabled={savingInlineTypeOfWork}>
+                              {savingInlineTypeOfWork ? "Saving..." : "Create Type Of Work"}
+                            </Button>
+                          </div>
+                        </div>
+                      ) : null}
 
                       {drawerMode === "edit" ? (
                         <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-3">
@@ -1450,105 +2415,6 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
                       ) : null}
 
                       <div className="space-y-2">
-                        <div className="flex items-center justify-between gap-3">
-                          <Label htmlFor="task-type-of-work">Type Of Work</Label>
-                          {canManageTypeOfWork ? (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              className="h-auto px-0 py-0 text-sm font-medium"
-                              disabled={isReadOnlyTaskForm}
-                              onClick={() => {
-                                setInlineTypeOfWorkOpen((prev) => !prev);
-                                setInlineTypeOfWorkForm(EMPTY_INLINE_TYPE_OF_WORK_FORM);
-                              }}>
-                              <Plus className="h-4 w-4" />
-                              Add new
-                            </Button>
-                          ) : null}
-                        </div>
-                        <Select
-                          value={taskForm.typeOfWorkId || "__none__"}
-                          disabled={isReadOnlyTaskForm}
-                          onValueChange={(value) =>
-                            setTaskForm((prev) => ({ ...prev, typeOfWorkId: value === "__none__" ? "" : value }))
-                          }>
-                          <SelectTrigger id="task-type-of-work" className={`h-9 w-full rounded-md ${isReadOnlyTaskForm ? "bg-muted text-muted-foreground" : ""}`}>
-                            <SelectValue placeholder="Select type of work" />
-                          </SelectTrigger>
-                          <SelectContent className="max-h-72">
-                          <SelectItem value="__none__">Select type of work</SelectItem>
-                          {typeOfWorkOptions.map((item) => (
-                            <SelectItem key={String(item.id)} value={String(item.id)}>
-                              {item.work_type_name}
-                            </SelectItem>
-                          ))}
-                          </SelectContent>
-                        </Select>
-                        {inlineTypeOfWorkOpen ? (
-                          <div className="rounded-2xl border border-border/80 bg-muted/20 p-4">
-                            <div className="mb-3 flex items-center justify-between gap-3">
-                              <div>
-                                <p className="text-sm font-semibold text-foreground">Create New Type Of Work</p>
-                                <p className="text-xs text-muted-foreground">Add it here and use it immediately for this task.</p>
-                              </div>
-                            </div>
-                            <div className="grid grid-cols-1 gap-3">
-                              <div className="space-y-2">
-                                <Label htmlFor="inline-type-of-work-name" className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                                  Work Type Name
-                                </Label>
-                                <Input
-                                  id="inline-type-of-work-name"
-                                  value={inlineTypeOfWorkForm.workTypeName}
-                                  onChange={(event) =>
-                                    setInlineTypeOfWorkForm((prev) => ({ ...prev, workTypeName: event.target.value }))
-                                  }
-                                  placeholder="Enter work type name"
-                                  className="h-11"
-                                />
-                              </div>
-                              <div className="space-y-2">
-                                <Label htmlFor="inline-type-of-work-point" className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                                  Point
-                                </Label>
-                                <Input
-                                  id="inline-type-of-work-point"
-                                  type="number"
-                                  step="any"
-                                  value={inlineTypeOfWorkForm.point}
-                                  onChange={(event) =>
-                                    setInlineTypeOfWorkForm((prev) => ({ ...prev, point: event.target.value }))
-                                  }
-                                  placeholder="0"
-                                  className="h-11"
-                                />
-                              </div>
-                            </div>
-                            <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                              <Button
-                                type="button"
-                                variant="outline"
-                                className="rounded-xl"
-                                onClick={() => {
-                                  setInlineTypeOfWorkOpen(false);
-                                  setInlineTypeOfWorkForm(EMPTY_INLINE_TYPE_OF_WORK_FORM);
-                                }}>
-                                Cancel
-                              </Button>
-                              <Button
-                                type="button"
-                                className="rounded-xl"
-                                onClick={handleCreateInlineTypeOfWork}
-                                disabled={savingInlineTypeOfWork}>
-                                {savingInlineTypeOfWork ? "Saving..." : "Create Type Of Work"}
-                              </Button>
-                            </div>
-                          </div>
-                        ) : null}
-                      </div>
-
-                      <div className="space-y-2">
                         <Label htmlFor="task-target-date">Target date</Label>
                         <Input
                           id="task-target-date"
@@ -1558,6 +2424,158 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
                           disabled={isReadOnlyTaskForm}
                           onChange={(event) => setTaskForm((prev) => ({ ...prev, targetDate: event.target.value }))}
                         />
+                      </div>
+
+                      {drawerMode === "edit" && !isAccountPlanner && !isDesigner ? (
+                        <div className="space-y-2">
+                          <Label>Negative Remarks</Label>
+                          {negativeRemarkOptions.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">No negative remarks available.</p>
+                          ) : (
+                            <div className="rounded-xl border border-border/70 bg-muted/20 p-3">
+                              <div className="space-y-2">
+                                {negativeRemarkOptions.map((remark) => {
+                                  const remarkId = String(remark.id);
+                                  const isChecked = taskForm.negativeRemarkIds.includes(remarkId);
+                                  return (
+                                    <label key={remarkId} className="flex items-start gap-3 rounded-lg border border-border/60 bg-background px-3 py-3">
+                                      <Checkbox
+                                        checked={isChecked}
+                                        disabled={isReadOnlyTaskForm}
+                                        onCheckedChange={(checked) =>
+                                          setTaskForm((prev) => ({
+                                            ...prev,
+                                            negativeRemarkIds: Boolean(checked)
+                                              ? [...prev.negativeRemarkIds, remarkId]
+                                              : prev.negativeRemarkIds.filter((id) => id !== remarkId),
+                                          }))
+                                        }
+                                      />
+                                      <div className="min-w-0 flex-1">
+                                        <p className="text-sm font-medium text-foreground">
+                                          {remark.remark_name}
+                                          {remark.point !== undefined && remark.point !== null ? ` (${formatRemarkPoint(remark.point)})` : ""}
+                                        </p>
+                                        {remark.description ? (
+                                          <p className="mt-1 text-xs text-muted-foreground">{remark.description}</p>
+                                        ) : null}
+                                      </div>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ) : null}
+
+                      {isRevisionTaskForm ? (
+                        <div className="space-y-2">
+                            <Label>Revision Changes</Label>
+                            <div className="grid gap-3 md:grid-cols-2">
+                              <label className="flex items-center gap-3 rounded-xl border border-border/70 bg-background px-3 py-3">
+                                <input
+                                  type="radio"
+                                  name="task-revision-changes"
+                                  checked={taskForm.haveMajorChanges}
+                                  disabled={isReadOnlyTaskForm}
+                                  onChange={() =>
+                                    setTaskForm((prev) => ({
+                                      ...prev,
+                                      haveMajorChanges: true,
+                                      haveMinorChanges: false,
+                                    }))
+                                  }
+                                />
+                                <span className="text-sm text-foreground">Have major changes</span>
+                              </label>
+                              <label className="flex items-center gap-3 rounded-xl border border-border/70 bg-background px-3 py-3">
+                                <input
+                                  type="radio"
+                                  name="task-revision-changes"
+                                  checked={taskForm.haveMinorChanges}
+                                  disabled={isReadOnlyTaskForm}
+                                  onChange={() =>
+                                    setTaskForm((prev) => ({
+                                      ...prev,
+                                      haveMajorChanges: false,
+                                      haveMinorChanges: true,
+                                    }))
+                                  }
+                                />
+                                <span className="text-sm text-foreground">Have minor changes</span>
+                              </label>
+                            </div>
+                        </div>
+                      ) : null}
+
+                      <div className="space-y-2">
+                        <Label htmlFor="task-attachments">Task Attachments</Label>
+                        <Input
+                          id="task-attachments"
+                          type="file"
+                          multiple
+                          disabled={isReadOnlyTaskForm}
+                          onChange={(event) =>
+                            setTaskForm((prev) => ({
+                              ...prev,
+                              attachmentFiles: [...prev.attachmentFiles, ...Array.from(event.target.files || [])],
+                            }))
+                          }
+                        />
+                        {taskForm.attachmentFiles.length > 0 ? (
+                          <div className="rounded-xl border border-border/70 bg-muted/20 p-3">
+                            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Selected attachments</p>
+                            <div className="mt-2 space-y-2">
+                              {taskForm.attachmentFiles.map((file, index) => (
+                                <div key={`${file.name}-${file.size}-${file.lastModified}-${index}`} className="flex items-center gap-2 rounded-lg border border-border/60 bg-background px-3 py-2">
+                                  <span className="min-w-0 flex-1 truncate text-sm text-foreground">{file.name}</span>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 shrink-0 rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                    disabled={isReadOnlyTaskForm}
+                                    onClick={() =>
+                                      setTaskForm((prev) => ({
+                                        ...prev,
+                                        attachmentFiles: prev.attachmentFiles.filter((_, fileIndex) => fileIndex !== index),
+                                      }))
+                                    }>
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                        {drawerMode === "edit" && taskForm.attachments.length > 0 ? (
+                          <div className="rounded-xl border border-border/70 bg-muted/20 p-3">
+                            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Existing attachments</p>
+                            <div className="mt-2 space-y-2">
+                              {taskForm.attachments.map((attachment) => (
+                                <div key={String(attachment.id)} className="flex items-center gap-2 rounded-lg border border-border/60 bg-background px-3 py-2">
+                                  <a
+                                    href={getAttachmentUrl(attachment)}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="min-w-0 flex-1 truncate text-sm text-foreground transition hover:text-primary">
+                                    {getAttachmentName(attachment)}
+                                  </a>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 shrink-0 rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                    disabled={String(deletingTaskAttachmentId) === String(attachment.id)}
+                                    onClick={() => handleDeleteTaskAttachment(attachment.id)}>
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
 
                       {drawerError ? <p className="text-sm text-destructive">{drawerError}</p> : null}
@@ -1591,12 +2609,12 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
 
             {!loading && !error ? (
               <div className="relative min-w-0 overflow-x-hidden rounded-xl border border-border bg-muted/30 p-3">
-                {!selectedClient && currentUserRole !== "designer" ? (
+                {!selectedClient ? (
                   <p className="text-sm text-muted-foreground">
                     No clients are assigned to your account.
                   </p>
                 ) : null}
-                {(selectedClient || currentUserRole === "designer") && visibleTasks.length === 0 ? (
+                {selectedClient && visibleTasks.length === 0 ? (
                   <div className="rounded-xl border border-dashed border-border bg-muted/30 p-8 text-center">
                     <CalendarDays className="mx-auto mb-2 h-5 w-5 text-muted-foreground" />
                     <p className="text-sm font-medium text-foreground">No tasks found</p>
@@ -1646,6 +2664,8 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
                                   client_name: task.client_name || getClientName(selectedClient || {}),
                                   designer_name: getDesignerLabel(task),
                                 }}
+                                attachments={attachmentsByTaskId[String(task.id)] || []}
+                                negativeRemarkLinks={negativeRemarkLinksByTaskId[String(task.id)] || []}
                                 isAccountPlanner={isAccountPlanner}
                                 isArtDirector={isArtDirector}
                                 isDesigner={currentUserRole === "designer"}
@@ -1670,7 +2690,15 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
           </div>
         </SidebarInset>
       </SidebarProvider>
-      <TaskHistoryDrawer open={historyOpen} onOpenChange={setHistoryOpen} task={historyTask} items={historyItems} />
+      <TaskHistoryDrawer
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        task={historyTask}
+        items={historyItems}
+        canDeleteItem={canManageTask}
+        deletingTaskId={deletingHistoryTaskId}
+        onDeleteItem={handleDeleteHistoryTask}
+      />
       <Toaster />
     </TooltipProvider>
   );
