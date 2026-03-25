@@ -47,6 +47,74 @@ function getMonthKeyFromDate(value) {
   return raw.slice(0, 7);
 }
 
+function isTaskEligibleForKpi(task) {
+  return Boolean(task?.is_marked_completed_by_superadmin || task?.is_marked_completed_by_account_planner);
+}
+
+function getTaskPointConfig(task, pointsByTypeId) {
+  return pointsByTypeId[String(task?.type_of_work || "")] || null;
+}
+
+function getRevisionBonus(task, pointConfig) {
+  if (!pointConfig) return 0;
+
+  let total = 0;
+  if (task?.have_major_changes) {
+    total += Number(pointConfig.major_changes_point || 0);
+  }
+  if (task?.have_minor_changes) {
+    total += Number(pointConfig.minor_changes_point || 0);
+  }
+  return total;
+}
+
+function getHighestSlides(...values) {
+  const normalizedValues = values
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value) && value > 0);
+
+  return normalizedValues.length ? Math.max(...normalizedValues) : 1;
+}
+
+function calculateOriginalTaskPoints(task, tasksById, childTaskIdsByParentId, negativeRemarkPointsByTaskId, pointsByTypeId) {
+  const pointConfig = getTaskPointConfig(task, pointsByTypeId);
+  if (!pointConfig) return 0;
+
+  const revisionIds = childTaskIdsByParentId.revisions[String(task.id)] || [];
+  const redoIds = childTaskIdsByParentId.redos[String(task.id)] || [];
+  const revisions = revisionIds.map((taskId) => tasksById[taskId]).filter(Boolean);
+  const redos = redoIds.map((taskId) => tasksById[taskId]).filter(Boolean);
+
+  const highestOriginalSlides = getHighestSlides(
+    task?.slides,
+    ...revisions.map((revision) => revision?.slides),
+    ...redos.map((redo) => redo?.slides),
+  );
+
+  let total = Number(pointConfig.point || 0) * highestOriginalSlides;
+
+  revisions.forEach((revision) => {
+    total += getRevisionBonus(revision, pointConfig);
+  });
+
+  redos.forEach((redo) => {
+    const redoPointConfig = getTaskPointConfig(redo, pointsByTypeId) || pointConfig;
+    const redoRevisionIds = childTaskIdsByParentId.revisions[String(redo.id)] || [];
+    const redoRevisions = redoRevisionIds.map((taskId) => tasksById[taskId]).filter(Boolean);
+    const highestRedoSlides = getHighestSlides(redo?.slides, ...redoRevisions.map((revision) => revision?.slides));
+
+    total += Number(redoPointConfig.redo_point || 0) * highestRedoSlides;
+    redoRevisions.forEach((revision) => {
+      total += getRevisionBonus(revision, redoPointConfig);
+    });
+  });
+
+  total += Number(negativeRemarkPointsByTaskId[String(task.id)] || 0);
+  total += Number(task?.excellence || 0);
+
+  return total;
+}
+
 function getProfitToneClass(value) {
   if (value > 0) return "border-emerald-200 bg-emerald-50 text-emerald-700";
   if (value < 0) return "border-rose-200 bg-rose-50 text-rose-700";
@@ -60,6 +128,8 @@ export default function BrandKpiPage() {
   const [designers, setDesigners] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [monthlyAmounts, setMonthlyAmounts] = useState([]);
+  const [typeOfWork, setTypeOfWork] = useState([]);
+  const [negativeRemarkLinks, setNegativeRemarkLinks] = useState([]);
   const [selectedClientId, setSelectedClientId] = useState("");
   const [selectedYear, setSelectedYear] = useState(String(currentYear));
   const [selectedMonth, setSelectedMonth] = useState(String(currentMonth));
@@ -74,11 +144,13 @@ export default function BrandKpiPage() {
       setError("");
 
       try {
-        const [loadedClients, loadedDesigners, loadedTasks, loadedMonthlyAmounts] = await Promise.all([
+        const [loadedClients, loadedDesigners, loadedTasks, loadedMonthlyAmounts, loadedTypeOfWork, loadedNegativeRemarkLinks] = await Promise.all([
           superboardApi.clients.listAll({ page_size: 300 }),
           superboardApi.designers.listAll({ page_size: 500 }),
           superboardApi.tasks.listAll({ page_size: 3000 }),
           superboardApi.clientMonthlyAmounts.listAll({ page_size: 1000 }),
+          superboardApi.typeOfWork.listAll({ page_size: 500 }),
+          superboardApi.negativeRemarksOnTask.listAll({ page_size: 3000 }),
         ]);
 
         if (cancelled) return;
@@ -91,6 +163,8 @@ export default function BrandKpiPage() {
         setDesigners(Array.isArray(loadedDesigners) ? loadedDesigners : []);
         setTasks(Array.isArray(loadedTasks) ? loadedTasks : []);
         setMonthlyAmounts(Array.isArray(loadedMonthlyAmounts) ? loadedMonthlyAmounts : []);
+        setTypeOfWork(Array.isArray(loadedTypeOfWork) ? loadedTypeOfWork : []);
+        setNegativeRemarkLinks(Array.isArray(loadedNegativeRemarkLinks) ? loadedNegativeRemarkLinks : []);
         setSelectedClientId((prev) => {
           if (sortedClients.some((client) => String(client.id) === String(prev))) return prev;
           return String(sortedClients[0]?.id || "");
@@ -125,9 +199,60 @@ export default function BrandKpiPage() {
 
   const selectedMonthKey = `${selectedYear}-${String(Number(selectedMonth)).padStart(2, "0")}`;
 
+  const pointsByTypeId = useMemo(() => {
+    return typeOfWork.reduce((accumulator, item) => {
+      accumulator[String(item.id)] = item;
+      return accumulator;
+    }, {});
+  }, [typeOfWork]);
+
+  const negativeRemarkPointsByTaskId = useMemo(() => {
+    return negativeRemarkLinks.reduce((accumulator, link) => {
+      const taskId = String(link?.task || "");
+      if (!taskId) return accumulator;
+      const numericPoint = Number(link?.point ?? 0);
+      accumulator[taskId] = (accumulator[taskId] || 0) + (Number.isFinite(numericPoint) ? numericPoint : 0);
+      return accumulator;
+    }, {});
+  }, [negativeRemarkLinks]);
+
+  const tasksById = useMemo(() => {
+    return tasks.reduce((accumulator, task) => {
+      accumulator[String(task.id)] = task;
+      return accumulator;
+    }, {});
+  }, [tasks]);
+
+  const childTaskIdsByParentId = useMemo(() => {
+    return tasks.reduce(
+      (accumulator, task) => {
+        if (task?.revision_of) {
+          const parentId = String(task.revision_of);
+          accumulator.revisions[parentId] = accumulator.revisions[parentId] || [];
+          accumulator.revisions[parentId].push(String(task.id));
+        }
+        if (task?.redo_of) {
+          const parentId = String(task.redo_of);
+          accumulator.redos[parentId] = accumulator.redos[parentId] || [];
+          accumulator.redos[parentId].push(String(task.id));
+        }
+        return accumulator;
+      },
+      { revisions: {}, redos: {} },
+    );
+  }, [tasks]);
+
+  const monthlyEligibleOriginalTasks = useMemo(() => {
+    return tasks.filter((task) => {
+      if (!isTaskEligibleForKpi(task)) return false;
+      if (task?.revision_of || task?.redo_of) return false;
+      return getMonthKeyFromDate(task?.target_date) === selectedMonthKey;
+    });
+  }, [selectedMonthKey, tasks]);
+
   const clientTasks = useMemo(() => {
-    return tasks.filter((task) => String(task?.client || "") === String(selectedClientId));
-  }, [selectedClientId, tasks]);
+    return monthlyEligibleOriginalTasks.filter((task) => String(task?.client || "") === String(selectedClientId));
+  }, [monthlyEligibleOriginalTasks, selectedClientId]);
 
   const totalTaskCount = clientTasks.length;
 
@@ -146,29 +271,41 @@ export default function BrandKpiPage() {
   }, [designers]);
 
   const designerRows = useMemo(() => {
-    const taskCountByDesigner = clientTasks.reduce((accumulator, task) => {
+    const clientPointsByDesigner = clientTasks.reduce((accumulator, task) => {
       const designerId = String(task?.designer || "");
       if (!designerId) return accumulator;
-      accumulator[designerId] = (accumulator[designerId] || 0) + 1;
+      accumulator[designerId] =
+        (accumulator[designerId] || 0) +
+        calculateOriginalTaskPoints(task, tasksById, childTaskIdsByParentId, negativeRemarkPointsByTaskId, pointsByTypeId);
       return accumulator;
     }, {});
 
-    return Object.entries(taskCountByDesigner)
-      .map(([designerId, designerTaskCount]) => {
+    const totalClientPoints = Object.values(clientPointsByDesigner).reduce((sum, value) => sum + Number(value || 0), 0);
+
+    return Object.entries(clientPointsByDesigner)
+      .map(([designerId, clientPoints]) => {
         const salary = Number(designerSalaryById[designerId] || 0);
-        const percentage = totalTaskCount > 0 ? (designerTaskCount / totalTaskCount) * 100 : 0;
+        const percentage = totalClientPoints > 0 ? (clientPoints / totalClientPoints) * 100 : 0;
         const cost = (percentage / 100) * salary;
         return {
           id: designerId,
           name: getDesignerName(designerById[designerId]),
-          designerTaskCount,
+          clientPoints,
           percentage,
           salary,
           cost,
         };
       })
-      .sort((left, right) => right.designerTaskCount - left.designerTaskCount || left.name.localeCompare(right.name));
-  }, [clientTasks, designerById, designerSalaryById, totalTaskCount]);
+      .sort((left, right) => right.clientPoints - left.clientPoints || left.name.localeCompare(right.name));
+  }, [
+    childTaskIdsByParentId,
+    clientTasks,
+    designerById,
+    designerSalaryById,
+    negativeRemarkPointsByTaskId,
+    pointsByTypeId,
+    tasksById,
+  ]);
 
   const totalCost = useMemo(() => {
     return designerRows.reduce((sum, row) => sum + row.cost, 0);
@@ -266,7 +403,9 @@ export default function BrandKpiPage() {
                     <CardContent className="space-y-2 p-5">
                       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">Total Tasks</p>
                       <p className="text-3xl font-semibold tracking-tight">{formatNumber(totalTaskCount, 0)}</p>
-                      <p className="text-sm text-muted-foreground">{selectedClient ? getClientName(selectedClient) : "No client selected"}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {selectedClient ? `${getClientName(selectedClient)} in ${MONTH_LABELS[Number(selectedMonth) - 1]} ${selectedYear}` : "No client selected"}
+                      </p>
                     </CardContent>
                   </Card>
 
@@ -274,7 +413,7 @@ export default function BrandKpiPage() {
                     <CardContent className="space-y-2 p-5">
                       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">Total Cost</p>
                       <p className="text-3xl font-semibold tracking-tight">{formatCurrency(totalCost)}</p>
-                      <p className="text-sm text-muted-foreground">Distributed by designer workload share</p>
+                      <p className="text-sm text-muted-foreground">Distributed by client-month points share</p>
                     </CardContent>
                   </Card>
 
@@ -313,19 +452,19 @@ export default function BrandKpiPage() {
                     ) : (
                       <Table>
                         <TableHeader>
-                          <TableRow className="bg-muted/20 hover:bg-muted/20">
-                            <TableHead className="px-4 py-3">Designer Name</TableHead>
-                            <TableHead className="px-4 py-3">Tasks Completed</TableHead>
-                            <TableHead className="px-4 py-3">% of Work</TableHead>
-                            <TableHead className="px-4 py-3">Salary</TableHead>
-                            <TableHead className="px-4 py-3">Cost</TableHead>
+                            <TableRow className="bg-muted/20 hover:bg-muted/20">
+                              <TableHead className="px-4 py-3">Designer Name</TableHead>
+                              <TableHead className="px-4 py-3">Client Points</TableHead>
+                              <TableHead className="px-4 py-3">% of Work</TableHead>
+                              <TableHead className="px-4 py-3">Salary</TableHead>
+                              <TableHead className="px-4 py-3">Cost</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {designerRows.map((row) => (
                             <TableRow key={row.id}>
                               <TableCell className="px-4 py-4 font-medium">{row.name}</TableCell>
-                              <TableCell className="px-4 py-4">{formatNumber(row.designerTaskCount, 0)}</TableCell>
+                              <TableCell className="px-4 py-4">{formatNumber(row.clientPoints)}</TableCell>
                               <TableCell className="px-4 py-4">{formatNumber(row.percentage)}%</TableCell>
                               <TableCell className="px-4 py-4">{formatCurrency(row.salary)}</TableCell>
                               <TableCell className="px-4 py-4">{formatCurrency(row.cost)}</TableCell>

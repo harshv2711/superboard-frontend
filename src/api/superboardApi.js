@@ -171,6 +171,7 @@ function createCrud(path) {
 }
 
 const usersCrud = createCrud("/api/users/");
+const employeesCrud = createCrud("/api/employees/");
 const brandsCrud = createCrud("/api/brands/");
 const serviceCategoriesCrud = createCrud("/api/service-categories/");
 const typeOfWorkCrud = createCrud("/api/type-of-work/");
@@ -288,6 +289,7 @@ export const superboardApi = {
       }),
   },
   users: usersCrud,
+  employees: employeesCrud,
   groups: groupsCrud,
   groupMembers: groupMembersCrud,
   designers: {

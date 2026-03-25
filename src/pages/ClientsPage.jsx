@@ -833,14 +833,6 @@ export default function ClientsPage() {
 
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
-                    variant="outline"
-                    className="rounded-xl"
-                    onClick={openCreateScopeDrawer}
-                    disabled={ownedClients.length === 0}>
-                    <Plus className="h-4 w-4" />
-                    Add Scope
-                  </Button>
-                  <Button
                     className="rounded-xl"
                     onClick={openCreateClientDrawer}
                     disabled={!(currentUserRole === "account_planner" || isSuperuser)}>

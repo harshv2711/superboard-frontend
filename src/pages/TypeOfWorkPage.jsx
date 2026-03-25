@@ -20,6 +20,9 @@ function toTypeOfWorkForm(item = null) {
     id: item?.id || null,
     workTypeName: item?.work_type_name || "",
     point: item?.point != null ? String(item.point) : "",
+    redoPoint: item?.redo_point != null ? String(item.redo_point) : "",
+    majorChangesPoint: item?.major_changes_point != null ? String(item.major_changes_point) : "",
+    minorChangesPoint: item?.minor_changes_point != null ? String(item.minor_changes_point) : "",
     taskCount: item?.task_count || 0,
   };
 }
@@ -105,6 +108,9 @@ export default function TypeOfWorkPage() {
       const payload = {
         work_type_name: form.workTypeName.trim(),
         point: Number(form.point),
+        redo_point: Number(form.redoPoint),
+        major_changes_point: Number(form.majorChangesPoint),
+        minor_changes_point: Number(form.minorChangesPoint),
       };
 
       if (form.id) {
@@ -270,6 +276,45 @@ export default function TypeOfWorkPage() {
                         required
                       />
                     </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="type-of-work-redo-point">Redo Point</Label>
+                      <Input
+                        id="type-of-work-redo-point"
+                        type="number"
+                        step="any"
+                        value={form.redoPoint}
+                        onChange={(event) => setForm((prev) => ({ ...prev, redoPoint: event.target.value }))}
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="type-of-work-major-changes-point">Major Changes Point</Label>
+                      <Input
+                        id="type-of-work-major-changes-point"
+                        type="number"
+                        step="any"
+                        value={form.majorChangesPoint}
+                        onChange={(event) => setForm((prev) => ({ ...prev, majorChangesPoint: event.target.value }))}
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="type-of-work-minor-changes-point">Minor Changes Point</Label>
+                      <Input
+                        id="type-of-work-minor-changes-point"
+                        type="number"
+                        step="any"
+                        value={form.minorChangesPoint}
+                        onChange={(event) => setForm((prev) => ({ ...prev, minorChangesPoint: event.target.value }))}
+                        required
+                      />
+                    </div>
+                    <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-muted-foreground">Tasks using this type of work</span>
+                        <span className="font-medium text-foreground">{form.taskCount}</span>
+                      </div>
+                    </div>
                     {drawerError ? <p className="text-sm text-destructive">{drawerError}</p> : null}
                     <div className="flex flex-col gap-2">
                       <Button type="submit" disabled={saving}>
@@ -312,13 +357,17 @@ export default function TypeOfWorkPage() {
                       <TableHead className="px-4">Work Type Name</TableHead>
                       <TableHead className="px-4">Point Status</TableHead>
                       <TableHead className="px-4">Point</TableHead>
+                      <TableHead className="px-4">Redo Point</TableHead>
+                      <TableHead className="px-4">Major Changes</TableHead>
+                      <TableHead className="px-4">Minor Changes</TableHead>
+                      <TableHead className="px-4">Tasks Using</TableHead>
                       <TableHead className="px-4 text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {paginatedItems.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
+                        <TableCell colSpan={10} className="px-4 py-8 text-center text-muted-foreground">
                           No type of work found.
                         </TableCell>
                       </TableRow>
@@ -344,6 +393,18 @@ export default function TypeOfWorkPage() {
                           </TableCell>
                           <TableCell className="px-4 py-4 text-base font-semibold text-foreground">
                             {item.point}
+                          </TableCell>
+                          <TableCell className="px-4 py-4 text-base text-foreground">
+                            {item.redo_point}
+                          </TableCell>
+                          <TableCell className="px-4 py-4 text-base text-foreground">
+                            {item.major_changes_point}
+                          </TableCell>
+                          <TableCell className="px-4 py-4 text-base text-foreground">
+                            {item.minor_changes_point}
+                          </TableCell>
+                          <TableCell className="px-4 py-4 text-base text-foreground">
+                            {item.task_count || 0}
                           </TableCell>
                           <TableCell className="px-4 py-4 text-right">
                             <div className="flex items-center justify-end gap-1">

@@ -178,11 +178,16 @@ export function AppSidebar({
     if (user.role === "designer") return [];
     if (user.role === "account_planner") {
       return data.documents.filter(
-        (item) => item.url !== "/reports/designer-kpi" && item.url !== "/reports/brand-kpi",
+        (item) =>
+          item.url !== "/reports/designer-kpi" &&
+          item.url !== "/reports/brand-kpi",
       );
     }
     if (user.role !== "superuser") {
-      return data.documents.filter((item) => item.url !== "/reports/brand-kpi");
+      return data.documents.filter(
+        (item) =>
+          item.url !== "/reports/brand-kpi",
+      );
     }
     return data.documents;
   }, [user.role]);
