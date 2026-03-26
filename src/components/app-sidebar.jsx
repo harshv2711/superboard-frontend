@@ -47,6 +47,10 @@ const data = {
           title: "Type Of Work",
           url: "/account-planing/type-of-work",
         },
+        {
+          title: "Negative Remarks",
+          url: "/account-planing/negative-remarks",
+        },
       ],
     },
   ],
@@ -131,6 +135,10 @@ function getNavMainForRole(role) {
           {
             title: "Type Of Work",
             url: "/art-director/type-of-work",
+          },
+          {
+            title: "Negative Remarks",
+            url: "/art-director/negative-remarks",
           },
         ],
       },

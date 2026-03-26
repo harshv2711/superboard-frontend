@@ -8,6 +8,7 @@ import AccountPage from "./pages/AccountPage.jsx";
 import DesignerKpiPage from "./pages/DesignerKpiPage.jsx";
 import BrandKpiPage from "./pages/BrandKpiPage.jsx";
 import LoginPage from "./pages/LoginPage.jsx";
+import NegativeRemarksPage from "./pages/NegativeRemarksPage.jsx";
 import RegisterPage from "./pages/RegisterPage.jsx";
 import TypeOfWorkPage from "./pages/TypeOfWorkPage.jsx";
 import WelcomePage from "./pages/WelcomePage.jsx";
@@ -121,11 +122,20 @@ export default function App() {
           </RequireRole>
         }
       />
+      <Route
+        path="/account-planing/negative-remarks"
+        element={
+          <RequireRole allowedRoles={["superuser", "art_director"]}>
+            <NegativeRemarksPage />
+          </RequireRole>
+        }
+      />
       <Route path="/account-planning" element={<Navigate to="/account-planing" replace />} />
       <Route path="/account-planning/daily-task" element={<Navigate to="/account-planing/daily-task" replace />} />
       <Route path="/account-planning/clients" element={<Navigate to="/account-planing/clients" replace />} />
       <Route path="/account-planning/clients-work" element={<Navigate to="/account-planing/clients-work" replace />} />
       <Route path="/account-planning/type-of-work" element={<Navigate to="/account-planing/type-of-work" replace />} />
+      <Route path="/account-planning/negative-remarks" element={<Navigate to="/account-planing/negative-remarks" replace />} />
       <Route
         path="/art-director"
         element={
@@ -156,6 +166,14 @@ export default function App() {
         element={
           <RequireRole allowedRoles={["art_director"]}>
             <TypeOfWorkPage />
+          </RequireRole>
+        }
+      />
+      <Route
+        path="/art-director/negative-remarks"
+        element={
+          <RequireRole allowedRoles={["art_director"]}>
+            <NegativeRemarksPage />
           </RequireRole>
         }
       />
