@@ -247,23 +247,20 @@ function formatTimestamp(isoDate) {
 }
 
 function getTaskCardToneClass(task) {
-  if (Boolean(task?.is_marked_completed_by_superadmin) || isTaskCompleted(task)) {
+  if (task?.stage === "approved" || isTaskCompleted(task)) {
     return "border-emerald-300 bg-emerald-50/60";
   }
-  if (Boolean(task?.is_marked_completed_by_art_director)) {
+  if (task?.stage === "approved_by_art_director_waiting_for_approval") {
     return "border-amber-300 bg-amber-50/60";
   }
-  if (Boolean(task?.is_marked_completed_by_designer)) {
+  if (task?.stage === "complete") {
     return "border-sky-300 bg-sky-50/60";
   }
   return "border-slate-300 bg-white";
 }
 
 function canDesignerModifyCompletion(task) {
-  const artDirectorCompleted = task?.is_marked_completed_by_art_director ?? task?.isMarkedCompletedByArtDirector;
-  const accountPlannerCompleted = task?.is_marked_completed_by_account_planner ?? task?.isMarkedCompletedByAccountPlanner;
-  const superadminCompleted = task?.is_marked_completed_by_superadmin ?? task?.isMarkedCompletedBySuperadmin;
-  return !artDirectorCompleted && !accountPlannerCompleted && !superadminCompleted;
+  return task?.stage !== "approved_by_art_director_waiting_for_approval" && task?.stage !== "approved";
 }
 
 function getIsoDateKey(value) {
@@ -286,11 +283,7 @@ function getDateParts(value) {
 }
 
 function isTaskCompleted(task) {
-  return Boolean(
-    task?.is_marked_completed_by_account_planner &&
-      task?.is_marked_completed_by_art_director &&
-      task?.is_marked_completed_by_designer,
-  );
+  return task?.stage === "approved";
 }
 
 const MONTH_NAMES = [
@@ -604,6 +597,9 @@ const EMPTY_TASK_FORM = {
   designerId: "",
   typeOfWorkId: "",
   slides: "1",
+  impressions: "",
+  ctr: "",
+  engagementRate: "",
   targetDate: "",
   excellence: "",
   excellenceReason: "",
@@ -1128,6 +1124,18 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
       designerId: baseTask?.designer ? String(baseTask.designer) : "",
       typeOfWorkId: baseTask?.type_of_work ? String(baseTask.type_of_work) : "",
       slides: baseTask?.slides === null || baseTask?.slides === undefined || baseTask?.slides === "" ? "1" : String(baseTask.slides),
+      impressions:
+        baseTask?.impressions === null || baseTask?.impressions === undefined || baseTask?.impressions === ""
+          ? ""
+          : String(baseTask.impressions),
+      ctr:
+        baseTask?.ctr === null || baseTask?.ctr === undefined || baseTask?.ctr === ""
+          ? ""
+          : String(baseTask.ctr),
+      engagementRate:
+        baseTask?.engagement_rate === null || baseTask?.engagement_rate === undefined || baseTask?.engagement_rate === ""
+          ? ""
+          : String(baseTask.engagement_rate),
       targetDate: baseTask?.target_date || new Date().toISOString().slice(0, 10),
       excellence:
         baseTask?.excellence === null || baseTask?.excellence === undefined || baseTask?.excellence === ""
@@ -1177,6 +1185,18 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
       designerId: baseTask?.designer ? String(baseTask.designer) : "",
       typeOfWorkId: baseTask?.type_of_work ? String(baseTask.type_of_work) : "",
       slides: baseTask?.slides === null || baseTask?.slides === undefined || baseTask?.slides === "" ? "1" : String(baseTask.slides),
+      impressions:
+        baseTask?.impressions === null || baseTask?.impressions === undefined || baseTask?.impressions === ""
+          ? ""
+          : String(baseTask.impressions),
+      ctr:
+        baseTask?.ctr === null || baseTask?.ctr === undefined || baseTask?.ctr === ""
+          ? ""
+          : String(baseTask.ctr),
+      engagementRate:
+        baseTask?.engagement_rate === null || baseTask?.engagement_rate === undefined || baseTask?.engagement_rate === ""
+          ? ""
+          : String(baseTask.engagement_rate),
       targetDate: baseTask?.target_date || new Date().toISOString().slice(0, 10),
       excellence:
         baseTask?.excellence === null || baseTask?.excellence === undefined || baseTask?.excellence === ""
@@ -1231,6 +1251,18 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
         designerId: task.designer ? String(task.designer) : "",
         typeOfWorkId: task.type_of_work ? String(task.type_of_work) : "",
         slides: task.slides === null || task.slides === undefined || task.slides === "" ? "1" : String(task.slides),
+        impressions:
+          task.impressions === null || task.impressions === undefined || task.impressions === ""
+            ? ""
+            : String(task.impressions),
+        ctr:
+          task.ctr === null || task.ctr === undefined || task.ctr === ""
+            ? ""
+            : String(task.ctr),
+        engagementRate:
+          task.engagement_rate === null || task.engagement_rate === undefined || task.engagement_rate === ""
+            ? ""
+            : String(task.engagement_rate),
         targetDate: task.target_date || "",
         excellence:
           task.excellence === null || task.excellence === undefined || task.excellence === ""
@@ -1337,6 +1369,9 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
           priority: taskForm.priority,
           type_of_work: taskForm.typeOfWorkId ? Number(taskForm.typeOfWorkId) : null,
           slides: taskForm.slides ? Number(taskForm.slides) : 1,
+          impressions: taskForm.impressions ? Number(taskForm.impressions) : null,
+          ctr: taskForm.ctr ? Number(taskForm.ctr) : null,
+          engagement_rate: taskForm.engagementRate ? Number(taskForm.engagementRate) : null,
           revision_type: taskForm.revisionType || "",
           target_date: taskForm.targetDate || null,
         };
@@ -1544,8 +1579,9 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
     }
     setUpdatingDesignerCompletionTaskId(String(task.id));
     try {
+      const nextStage = checked ? "complete" : (task?.stage === "backlog" ? "backlog" : "on_going");
       await superboardApi.tasks.patch(task.id, {
-        is_marked_completed_by_designer: Boolean(checked),
+        stage: nextStage,
       });
       toast.success("Designer completion updated successfully.");
       setReloadTick((value) => value + 1);
@@ -2208,6 +2244,48 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
                             value={taskForm.slides}
                             disabled={isReadOnlyTaskForm}
                             onChange={(event) => setTaskForm((prev) => ({ ...prev, slides: event.target.value }))}
+                            className={isReadOnlyTaskForm ? "bg-muted text-muted-foreground" : ""}
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="task-impressions">Impressions</Label>
+                          <Input
+                            id="task-impressions"
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={taskForm.impressions}
+                            disabled={isReadOnlyTaskForm}
+                            onChange={(event) => setTaskForm((prev) => ({ ...prev, impressions: event.target.value }))}
+                            className={isReadOnlyTaskForm ? "bg-muted text-muted-foreground" : ""}
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="task-ctr">CTR (%)</Label>
+                          <Input
+                            id="task-ctr"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={taskForm.ctr}
+                            disabled={isReadOnlyTaskForm}
+                            onChange={(event) => setTaskForm((prev) => ({ ...prev, ctr: event.target.value }))}
+                            className={isReadOnlyTaskForm ? "bg-muted text-muted-foreground" : ""}
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="task-engagement-rate">Engagement Rate (%)</Label>
+                          <Input
+                            id="task-engagement-rate"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={taskForm.engagementRate}
+                            disabled={isReadOnlyTaskForm}
+                            onChange={(event) => setTaskForm((prev) => ({ ...prev, engagementRate: event.target.value }))}
                             className={isReadOnlyTaskForm ? "bg-muted text-muted-foreground" : ""}
                           />
                         </div>

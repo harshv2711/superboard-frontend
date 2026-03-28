@@ -3,7 +3,7 @@ import { superboardApi } from "@/api/superboardApi";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -11,7 +11,6 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 const MONTH_LABELS = ["Jan", "Feb", "March", "April", "May", "June", "July", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const BASE_WEEK_COLUMNS = [1, 2, 3, 4];
 
 function getPersonName(user) {
   if (!user) return "Unknown";
@@ -19,211 +18,113 @@ function getPersonName(user) {
   return fullName || user.username || user.email || `Designer #${user.id}`;
 }
 
-function parseDateValue(value) {
-  if (!value) return null;
-
-  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    const [year, month, day] = value.split("-").map(Number);
-    return new Date(year, month - 1, day);
-  }
-
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function getTaskKpiDate(task) {
-  return parseDateValue(task?.target_date || "");
-}
-
-function getTaskPoint(task, pointsByTypeId, negativeRemarkPointsByTaskId) {
-  const rawBasePoint = pointsByTypeId[String(task?.type_of_work)] ?? 0;
-  const basePoint = Number(rawBasePoint);
-  const rawExcellencePoint = task?.excellence ?? 0;
-  const excellencePoint = Number(rawExcellencePoint);
-  const rawNegativeRemarkPoint = negativeRemarkPointsByTaskId[String(task?.id)] ?? 0;
-  const negativeRemarkPoint = Number(rawNegativeRemarkPoint);
-  const normalizedBasePoint = Number.isFinite(basePoint) ? basePoint : 0;
-  const normalizedExcellencePoint = Number.isFinite(excellencePoint) ? excellencePoint : 0;
-  const normalizedNegativeRemarkPoint = Number.isFinite(negativeRemarkPoint) ? negativeRemarkPoint : 0;
-  return normalizedBasePoint + normalizedExcellencePoint + normalizedNegativeRemarkPoint;
-}
-
-function isTaskEligibleForKpi(task) {
-  return Boolean(task?.is_marked_completed_by_superadmin || task?.is_marked_completed_by_account_planner);
-}
-
-function getWeekOfMonth(date) {
-  return Math.min(5, Math.floor((date.getDate() - 1) / 7) + 1);
-}
-
-function getWeeksForMonth(year, month) {
-  const daysInMonth = new Date(year, month, 0).getDate();
-  return daysInMonth > 28 ? [...BASE_WEEK_COLUMNS, 5] : BASE_WEEK_COLUMNS;
-}
-
 function formatPoint(value) {
   const numeric = Number(value) || 0;
   return Number.isInteger(numeric) ? String(numeric) : numeric.toFixed(2).replace(/\.?0+$/, "");
 }
 
-function buildDesignerRows(designers, getValue) {
-  return designers.map((designer) => ({
-    id: String(designer.id),
-    name: getPersonName(designer),
-    values: getValue(String(designer.id)),
-  }));
-}
-
 export default function DesignerKpiPage() {
+  const currentYear = new Date().getFullYear();
   const [currentUser, setCurrentUser] = useState(null);
-  const [tasks, setTasks] = useState([]);
   const [users, setUsers] = useState([]);
-  const [typeOfWork, setTypeOfWork] = useState([]);
-  const [negativeRemarkLinks, setNegativeRemarkLinks] = useState([]);
-  const [selectedYear, setSelectedYear] = useState(String(new Date().getFullYear()));
+  const [rows, setRows] = useState([]);
+  const [selectedYear, setSelectedYear] = useState(String(currentYear));
   const [selectedMonth, setSelectedMonth] = useState(String(new Date().getMonth() + 1));
   const [error, setError] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMeta, setIsLoadingMeta] = useState(true);
+  const [isLoadingScores, setIsLoadingScores] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
 
-    async function loadData() {
-      setIsLoading(true);
+    async function loadMeta() {
+      setIsLoadingMeta(true);
       setError("");
 
       try {
         const me = await superboardApi.auth.me();
-        const requests = [
-          superboardApi.tasks.listAll({ page_size: 2000 }),
-          superboardApi.typeOfWork.listAll({ page_size: 500 }),
-          superboardApi.negativeRemarksOnTask.listAll({ page_size: 2000 }),
-        ];
+        const loadedUsers = me?.role === "designer"
+          ? [me]
+          : await superboardApi.designers.listAll({ page_size: 500 });
 
-        if (me?.role === "designer") {
-          requests.push(Promise.resolve([me]));
-        } else {
-          requests.push(superboardApi.designers.listAll({ page_size: 500 }));
-        }
-
-        const [loadedTasks, loadedTypeOfWork, loadedNegativeRemarkLinks, loadedUsers] = await Promise.all(requests);
         if (cancelled) return;
-
         setCurrentUser(me || null);
-        setTasks(Array.isArray(loadedTasks) ? loadedTasks : []);
-        setTypeOfWork(Array.isArray(loadedTypeOfWork) ? loadedTypeOfWork : []);
-        setNegativeRemarkLinks(Array.isArray(loadedNegativeRemarkLinks) ? loadedNegativeRemarkLinks : []);
         setUsers(Array.isArray(loadedUsers) ? loadedUsers : []);
       } catch (loadError) {
         if (cancelled) return;
-        setError(loadError.message || "Failed to load Designer KPI data.");
+        setError(loadError.message || "Failed to load designer list.");
       } finally {
-        if (!cancelled) setIsLoading(false);
+        if (!cancelled) setIsLoadingMeta(false);
       }
     }
 
-    loadData();
+    loadMeta();
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const pointsByTypeId = useMemo(
-    () =>
-      typeOfWork.reduce((accumulator, item) => {
-        accumulator[String(item.id)] = item.point ?? 0;
-        return accumulator;
-      }, {}),
-    [typeOfWork],
-  );
-
-  const negativeRemarkPointsByTaskId = useMemo(
-    () =>
-      negativeRemarkLinks.reduce((accumulator, link) => {
-        const taskId = String(link?.task || "");
-        if (!taskId) return accumulator;
-        const numericPoint = Number(link?.point ?? 0);
-        accumulator[taskId] = (accumulator[taskId] ?? 0) + (Number.isFinite(numericPoint) ? numericPoint : 0);
-        return accumulator;
-      }, {}),
-    [negativeRemarkLinks],
-  );
-
   const designers = useMemo(() => {
-    const rows = users.filter((user) => user?.id && (currentUser?.role !== "designer" || user?.id === currentUser?.id));
-    return rows.slice().sort((left, right) => getPersonName(left).localeCompare(getPersonName(right)));
+    const visibleUsers = users.filter((user) => user?.id && (currentUser?.role !== "designer" || user?.id === currentUser?.id));
+    return visibleUsers.slice().sort((left, right) => getPersonName(left).localeCompare(getPersonName(right)));
   }, [currentUser?.id, currentUser?.role, users]);
 
-  const availableYears = useMemo(() => {
-    const yearSet = new Set([new Date().getFullYear()]);
+  const availableYears = useMemo(
+    () => Array.from({ length: 5 }, (_, index) => currentYear - 2 + index).sort((left, right) => right - left),
+    [currentYear],
+  );
 
-    tasks.forEach((task) => {
-      if (!isTaskEligibleForKpi(task)) return;
-      const completedDate = getTaskKpiDate(task);
-      if (!completedDate) return;
-      yearSet.add(completedDate.getFullYear());
-    });
-
-    return Array.from(yearSet).sort((left, right) => right - left);
-  }, [tasks]);
+  const selectedMonthValue = `${selectedYear}-${String(selectedMonth).padStart(2, "0")}`;
 
   useEffect(() => {
-    if (!availableYears.length) return;
-    if (!availableYears.includes(Number(selectedYear))) {
-      setSelectedYear(String(availableYears[0]));
+    let cancelled = false;
+
+    async function loadScores() {
+      if (isLoadingMeta) return;
+
+      setIsLoadingScores(true);
+      setError("");
+
+      try {
+        const scoreRows = await Promise.all(
+          designers.map(async (designer) => {
+            const payload = await superboardApi.tasks.designerKpi({
+              designerId: designer.id,
+              month: selectedMonthValue,
+            });
+
+            return {
+              id: String(designer.id),
+              name: getPersonName(designer),
+              total: Number(payload?.total_kpi_score || 0),
+            };
+          }),
+        );
+
+        if (cancelled) return;
+        setRows(scoreRows);
+      } catch (loadError) {
+        if (cancelled) return;
+        setRows([]);
+        setError(loadError.message || "Failed to load designer KPI data.");
+      } finally {
+        if (!cancelled) setIsLoadingScores(false);
+      }
     }
-  }, [availableYears, selectedYear]);
 
-  const completedTasks = useMemo(() => {
-    return tasks.filter((task) => isTaskEligibleForKpi(task) && task?.designer);
-  }, [tasks]);
+    loadScores();
+    return () => {
+      cancelled = true;
+    };
+  }, [designers, isLoadingMeta, selectedMonthValue]);
 
-  const weeklyRows = useMemo(() => {
-    const year = Number(selectedYear);
-    const month = Number(selectedMonth) - 1;
-    const totalsByDesigner = {};
-
-    completedTasks.forEach((task) => {
-      const completedDate = getTaskKpiDate(task);
-      if (!completedDate) return;
-      if (completedDate.getFullYear() !== year || completedDate.getMonth() !== month) return;
-
-      const designerId = String(task.designer);
-      const week = getWeekOfMonth(completedDate);
-      if (!totalsByDesigner[designerId]) {
-        totalsByDesigner[designerId] = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
-      }
-      totalsByDesigner[designerId][week] += getTaskPoint(task, pointsByTypeId, negativeRemarkPointsByTaskId);
-    });
-
-    return buildDesignerRows(designers, (designerId) => totalsByDesigner[designerId] || { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 });
-  }, [completedTasks, designers, negativeRemarkPointsByTaskId, pointsByTypeId, selectedMonth, selectedYear]);
-
-  const weekColumns = useMemo(() => {
-    return getWeeksForMonth(Number(selectedYear), Number(selectedMonth));
-  }, [selectedMonth, selectedYear]);
-
-  const monthlyRows = useMemo(() => {
-    const year = Number(selectedYear);
-    const totalsByDesigner = {};
-
-    completedTasks.forEach((task) => {
-      const completedDate = getTaskKpiDate(task);
-      if (!completedDate) return;
-      if (completedDate.getFullYear() !== year) return;
-
-      const designerId = String(task.designer);
-      const monthIndex = completedDate.getMonth();
-      if (!totalsByDesigner[designerId]) {
-        totalsByDesigner[designerId] = Array.from({ length: 12 }, () => 0);
-      }
-      totalsByDesigner[designerId][monthIndex] += getTaskPoint(task, pointsByTypeId, negativeRemarkPointsByTaskId);
-    });
-
-    return buildDesignerRows(designers, (designerId) => totalsByDesigner[designerId] || Array.from({ length: 12 }, () => 0));
-  }, [completedTasks, designers, negativeRemarkPointsByTaskId, pointsByTypeId, selectedYear]);
+  const totalTeamScore = useMemo(
+    () => rows.reduce((total, row) => total + (Number(row.total) || 0), 0),
+    [rows],
+  );
 
   const selectedMonthLabel = MONTH_LABELS[Number(selectedMonth) - 1] || "Month";
+  const isLoading = isLoadingMeta || isLoadingScores;
 
   return (
     <TooltipProvider>
@@ -246,8 +147,16 @@ export default function DesignerKpiPage() {
                       Team Performance
                     </Badge>
                     <p className="max-w-3xl text-sm text-muted-foreground">
-                      Shows designer points for tasks approved by superadmin or account planner. Type of work points, excellence, and task negative remarks all adjust the earned total. Weekly totals use the selected month, and monthly totals use the selected year.
+                      Monthly designer KPI is now calculated by the backend for tasks in Complete, Approved By Art Director / Waiting for approval,
+                      and Approved stages using grouped original-task chains, slide multiplier, revision points, redo points, excellence, and
+                      negative remarks.
                     </p>
+                  </div>
+                  <div className="rounded-[24px] border border-border/70 bg-background/80 px-5 py-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                      {selectedMonthLabel} {selectedYear} total
+                    </p>
+                    <p className="mt-2 text-3xl font-semibold tracking-tight text-foreground">{formatPoint(totalTeamScore)}</p>
                   </div>
                 </div>
 
@@ -292,67 +201,27 @@ export default function DesignerKpiPage() {
                 ) : designers.length === 0 ? (
                   <p className="text-sm text-muted-foreground">No designers found for this account.</p>
                 ) : (
-                  <>
-                    <div className="overflow-hidden rounded-[24px] border border-border/80">
-                      <div className="border-b border-border/70 bg-muted/35 px-4 py-3">
-                        <p className="text-sm font-semibold text-foreground">{selectedMonthLabel} weekly points</p>
-                      </div>
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="bg-muted/25 hover:bg-muted/25">
-                            <TableHead className="h-12 min-w-44 px-4 text-xs font-semibold uppercase tracking-[0.18em]">Designer</TableHead>
-                            {weekColumns.map((week) => (
-                              <TableHead key={week} className="h-12 min-w-28 px-4 text-xs font-semibold uppercase tracking-[0.18em]">
-                                Week {week}
-                              </TableHead>
-                            ))}
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {weeklyRows.map((row) => (
-                            <TableRow key={row.id}>
-                              <TableCell className="px-4 py-4 font-medium">{row.name}</TableCell>
-                              {weekColumns.map((week) => (
-                                <TableCell key={week} className="px-4 py-4">
-                                  {formatPoint(row.values[week])}
-                                </TableCell>
-                              ))}
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
+                  <div className="overflow-hidden rounded-[24px] border border-border/80">
+                    <div className="border-b border-border/70 bg-muted/35 px-4 py-3">
+                      <p className="text-sm font-semibold text-foreground">{selectedMonthLabel} {selectedYear} designer points</p>
                     </div>
-
-                    <div className="overflow-hidden rounded-[24px] border border-border/80">
-                      <div className="border-b border-border/70 bg-muted/35 px-4 py-3">
-                        <p className="text-sm font-semibold text-foreground">{selectedYear} monthly points</p>
-                      </div>
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="bg-muted/25 hover:bg-muted/25">
-                            <TableHead className="h-12 min-w-44 px-4 text-xs font-semibold uppercase tracking-[0.18em]">Designer</TableHead>
-                            {MONTH_LABELS.map((month) => (
-                              <TableHead key={month} className="h-12 min-w-24 px-4 text-xs font-semibold uppercase tracking-[0.18em]">
-                                {month}
-                              </TableHead>
-                            ))}
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-muted/25 hover:bg-muted/25">
+                          <TableHead className="h-12 min-w-44 px-4 text-xs font-semibold uppercase tracking-[0.18em]">Designer</TableHead>
+                          <TableHead className="h-12 min-w-32 px-4 text-xs font-semibold uppercase tracking-[0.18em]">KPI Score</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {rows.map((row) => (
+                          <TableRow key={row.id}>
+                            <TableCell className="px-4 py-4 font-medium">{row.name}</TableCell>
+                            <TableCell className="px-4 py-4">{formatPoint(row.total)}</TableCell>
                           </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {monthlyRows.map((row) => (
-                            <TableRow key={row.id}>
-                              <TableCell className="px-4 py-4 font-medium">{row.name}</TableCell>
-                              {row.values.map((value, index) => (
-                                <TableCell key={`${row.id}-${index}`} className="px-4 py-4">
-                                  {formatPoint(value)}
-                                </TableCell>
-                              ))}
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
                 )}
               </CardContent>
             </Card>

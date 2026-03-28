@@ -1,4 +1,17 @@
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
+function resolveApiBaseUrl() {
+  const configuredBaseUrl = (import.meta.env.VITE_API_BASE_URL || "").trim();
+
+  if (typeof window !== "undefined") {
+    const { hostname } = window.location;
+    if (hostname === "localhost" || hostname === "127.0.0.1") {
+      return "http://127.0.0.1:8000";
+    }
+  }
+
+  return configuredBaseUrl || "http://127.0.0.1:8000";
+}
+
+const API_BASE_URL = resolveApiBaseUrl().replace(/\/$/, "");
 const AUTH_TOKEN_KEY = "superboard_auth_token";
 const AUTH_USER_KEY = "superboard_auth_user";
 
@@ -179,6 +192,8 @@ const groupsCrud = createCrud("/api/groups/");
 const groupMembersCrud = createCrud("/api/group-members/");
 const negativeRemarksCrud = createCrud("/api/negative-remarks/");
 const negativeRemarksOnTaskCrud = createCrud("/api/negative-remarks-on-task/");
+const taskStagesCrud = createCrud("/api/taskstage/");
+const taskOnStagesCrud = createCrud("/api/taskonstage/");
 const clientsCrud = createCrud("/api/clients/");
 const clientAttachmentsCrud = createCrud("/api/client-attachments/");
 const clientMonthlyAmountsCrud = createCrud("/api/client-monthly-amounts/");
@@ -300,6 +315,8 @@ export const superboardApi = {
   typeOfWork: typeOfWorkCrud,
   negativeRemarks: negativeRemarksCrud,
   negativeRemarksOnTask: negativeRemarksOnTaskCrud,
+  taskStages: taskStagesCrud,
+  taskOnStages: taskOnStagesCrud,
   clients: clientsCrud,
   clientAttachments: clientAttachmentsCrud,
   clientMonthlyAmounts: clientMonthlyAmountsCrud,
@@ -307,6 +324,11 @@ export const superboardApi = {
   scopeOfWork: scopeOfWorkCrud,
   tasks: {
     ...tasksCrud,
+    designerKpi: ({ designerId, month }) =>
+      httpRequest(`/api/tasks/designer-kpi/?${new URLSearchParams({
+        ...(designerId ? { designer_id: designerId } : {}),
+        ...(month ? { month } : {}),
+      }).toString()}`),
     originals: (query = {}) =>
       httpRequest(`/api/tasks/originals/?${new URLSearchParams(query).toString()}`),
     originalsAll: (query = {}) => listAllPages("/api/tasks/originals/", query),

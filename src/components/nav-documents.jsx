@@ -14,7 +14,8 @@ import {
 import { NavLink, useLocation } from "react-router-dom";
 
 export function NavDocuments({
-  items
+  items,
+  label = "Reports and Analytics",
 }) {
   useSidebar()
   const { pathname } = useLocation()
@@ -23,7 +24,7 @@ export function NavDocuments({
 
   return (
     <SidebarGroup className="group-data-[collapsible=icon]:hidden">
-      <SidebarGroupLabel>Reports and Analytics</SidebarGroupLabel>
+      <SidebarGroupLabel>{label}</SidebarGroupLabel>
       <SidebarMenu>
         {items.map((item) => (
           <SidebarMenuItem key={item.name}>

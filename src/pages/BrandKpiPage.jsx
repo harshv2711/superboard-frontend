@@ -48,7 +48,7 @@ function getMonthKeyFromDate(value) {
 }
 
 function isTaskEligibleForKpi(task) {
-  return Boolean(task?.is_marked_completed_by_superadmin || task?.is_marked_completed_by_account_planner);
+  return task?.stage === "approved";
 }
 
 function getTaskPointConfig(task, pointsByTypeId) {

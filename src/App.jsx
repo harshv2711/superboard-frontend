@@ -10,6 +10,7 @@ import BrandKpiPage from "./pages/BrandKpiPage.jsx";
 import LoginPage from "./pages/LoginPage.jsx";
 import NegativeRemarksPage from "./pages/NegativeRemarksPage.jsx";
 import RegisterPage from "./pages/RegisterPage.jsx";
+import TaskStagesKanbanPage from "./pages/TaskStagesKanbanPage.jsx";
 import TypeOfWorkPage from "./pages/TypeOfWorkPage.jsx";
 import WelcomePage from "./pages/WelcomePage.jsx";
 
@@ -130,12 +131,21 @@ export default function App() {
           </RequireRole>
         }
       />
+      <Route
+        path="/account-planing/kanban"
+        element={
+          <RequireAuth>
+            <TaskStagesKanbanPage />
+          </RequireAuth>
+        }
+      />
       <Route path="/account-planning" element={<Navigate to="/account-planing" replace />} />
       <Route path="/account-planning/daily-task" element={<Navigate to="/account-planing/daily-task" replace />} />
       <Route path="/account-planning/clients" element={<Navigate to="/account-planing/clients" replace />} />
       <Route path="/account-planning/clients-work" element={<Navigate to="/account-planing/clients-work" replace />} />
       <Route path="/account-planning/type-of-work" element={<Navigate to="/account-planing/type-of-work" replace />} />
       <Route path="/account-planning/negative-remarks" element={<Navigate to="/account-planing/negative-remarks" replace />} />
+      <Route path="/account-planning/kanban" element={<Navigate to="/account-planing/kanban" replace />} />
       <Route
         path="/art-director"
         element={
@@ -178,6 +188,14 @@ export default function App() {
         }
       />
       <Route
+        path="/art-director/kanban"
+        element={
+          <RequireRole allowedRoles={["art_director"]}>
+            <TaskStagesKanbanPage />
+          </RequireRole>
+        }
+      />
+      <Route
         path="/designer"
         element={
           <RequireAuth>
@@ -198,6 +216,14 @@ export default function App() {
         element={
           <RequireRole allowedRoles={["designer"]}>
             <DailyTaskPage />
+          </RequireRole>
+        }
+      />
+      <Route
+        path="/designer/kanban"
+        element={
+          <RequireRole allowedRoles={["designer"]}>
+            <TaskStagesKanbanPage />
           </RequireRole>
         }
       />

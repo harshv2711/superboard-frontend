@@ -14,6 +14,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@fontsource-variable/geist": "^5.2.8",
+    "@hello-pangea/dnd": "^18.0.1",
     "@lexical/react": "^0.41.0",
     "@lexical/rich-text": "^0.41.0",
     "@tanstack/react-table": "^8.21.3",

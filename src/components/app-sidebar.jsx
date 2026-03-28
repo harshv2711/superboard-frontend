@@ -1,7 +1,6 @@
 import { superboardApi } from "@/api/superboardApi";
 import { NavDocuments } from "@/components/nav-documents"
 import { NavMain } from "@/components/nav-main"
-import { NavSecondary } from "@/components/nav-secondary"
 import { NavUser } from "@/components/nav-user"
 import {
   Sidebar,
@@ -12,7 +11,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
-import { ClipboardListIcon, FolderKanbanIcon, HomeIcon, ListIcon, PaletteIcon, SearchIcon, Settings2Icon } from "lucide-react"
+import { ClipboardListIcon, FolderKanbanIcon, HomeIcon, PaletteIcon } from "lucide-react"
 import { useEffect, useMemo, useState } from "react";
 
 const data = {
@@ -54,29 +53,6 @@ const data = {
       ],
     },
   ],
-  navSecondary: [
-    {
-      title: "Settings",
-      url: "#",
-      icon: (
-        <Settings2Icon />
-      ),
-    },
-    {
-      title: "Sections",
-      url: "#",
-      icon: (
-        <ListIcon />
-      ),
-    },
-    {
-      title: "Search",
-      url: "#",
-      icon: (
-        <SearchIcon />
-      ),
-    },
-  ],
   documents: [
     {
       name: "Deliverables Tracker",
@@ -95,6 +71,29 @@ const data = {
     {
       name: "Brand KPI",
       url: "/reports/brand-kpi",
+      icon: (
+        <ClipboardListIcon />
+      ),
+    },
+  ],
+  kanbanDocuments: [
+    {
+      name: "Designer Kanban",
+      url: "/designer/kanban",
+      icon: (
+        <ClipboardListIcon />
+      ),
+    },
+    {
+      name: "Art Director Kanban",
+      url: "/art-director/kanban",
+      icon: (
+        <ClipboardListIcon />
+      ),
+    },
+    {
+      name: "Account Planner Kanban",
+      url: "/account-planing/kanban",
       icon: (
         <ClipboardListIcon />
       ),
@@ -199,6 +198,18 @@ export function AppSidebar({
     }
     return data.documents;
   }, [user.role]);
+  const kanbanItems = useMemo(() => {
+    if (user.role === "designer") {
+      return data.kanbanDocuments.filter((item) => item.url === "/designer/kanban");
+    }
+    if (user.role === "art_director") {
+      return data.kanbanDocuments.filter((item) => item.url === "/art-director/kanban");
+    }
+    if (user.role === "account_planner") {
+      return data.kanbanDocuments.filter((item) => item.url === "/account-planing/kanban");
+    }
+    return data.kanbanDocuments;
+  }, [user.role]);
 
   useEffect(() => {
     let cancelled = false;
@@ -241,8 +252,8 @@ export function AppSidebar({
       </SidebarHeader>
       <SidebarContent>
         <NavMain items={navMainItems} />
+        <NavDocuments items={kanbanItems} label="Kanban View" />
         <NavDocuments items={documentItems} />
-        <NavSecondary items={data.navSecondary} className="mt-auto" />
       </SidebarContent>
       <SidebarFooter>
         <NavUser user={user} />
