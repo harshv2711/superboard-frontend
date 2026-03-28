@@ -11,6 +11,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 const MONTH_LABELS = ["Jan", "Feb", "March", "April", "May", "June", "July", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const BASE_WEEK_COLUMNS = [1, 2, 3, 4];
 
 function getPersonName(user) {
   if (!user) return "Unknown";
@@ -21,6 +22,11 @@ function getPersonName(user) {
 function formatPoint(value) {
   const numeric = Number(value) || 0;
   return Number.isInteger(numeric) ? String(numeric) : numeric.toFixed(2).replace(/\.?0+$/, "");
+}
+
+function getWeeksForMonth(year, month) {
+  const daysInMonth = new Date(year, month, 0).getDate();
+  return daysInMonth > 28 ? [...BASE_WEEK_COLUMNS, 5] : BASE_WEEK_COLUMNS;
 }
 
 export default function DesignerKpiPage() {
@@ -97,6 +103,7 @@ export default function DesignerKpiPage() {
               id: String(designer.id),
               name: getPersonName(designer),
               total: Number(payload?.total_kpi_score || 0),
+              weekly: payload?.weekly_scores || { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
             };
           }),
         );
@@ -121,6 +128,10 @@ export default function DesignerKpiPage() {
   const totalTeamScore = useMemo(
     () => rows.reduce((total, row) => total + (Number(row.total) || 0), 0),
     [rows],
+  );
+  const weekColumns = useMemo(
+    () => getWeeksForMonth(Number(selectedYear), Number(selectedMonth)),
+    [selectedMonth, selectedYear],
   );
 
   const selectedMonthLabel = MONTH_LABELS[Number(selectedMonth) - 1] || "Month";
@@ -201,27 +212,59 @@ export default function DesignerKpiPage() {
                 ) : designers.length === 0 ? (
                   <p className="text-sm text-muted-foreground">No designers found for this account.</p>
                 ) : (
-                  <div className="overflow-hidden rounded-[24px] border border-border/80">
-                    <div className="border-b border-border/70 bg-muted/35 px-4 py-3">
-                      <p className="text-sm font-semibold text-foreground">{selectedMonthLabel} {selectedYear} designer points</p>
-                    </div>
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="bg-muted/25 hover:bg-muted/25">
-                          <TableHead className="h-12 min-w-44 px-4 text-xs font-semibold uppercase tracking-[0.18em]">Designer</TableHead>
-                          <TableHead className="h-12 min-w-32 px-4 text-xs font-semibold uppercase tracking-[0.18em]">KPI Score</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {rows.map((row) => (
-                          <TableRow key={row.id}>
-                            <TableCell className="px-4 py-4 font-medium">{row.name}</TableCell>
-                            <TableCell className="px-4 py-4">{formatPoint(row.total)}</TableCell>
+                  <>
+                    <div className="overflow-hidden rounded-[24px] border border-border/80">
+                      <div className="border-b border-border/70 bg-muted/35 px-4 py-3">
+                        <p className="text-sm font-semibold text-foreground">{selectedMonthLabel} {selectedYear} weekly points</p>
+                      </div>
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-muted/25 hover:bg-muted/25">
+                            <TableHead className="h-12 min-w-44 px-4 text-xs font-semibold uppercase tracking-[0.18em]">Designer</TableHead>
+                            {weekColumns.map((week) => (
+                              <TableHead key={week} className="h-12 min-w-24 px-4 text-xs font-semibold uppercase tracking-[0.18em]">
+                                Week {week}
+                              </TableHead>
+                            ))}
                           </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
+                        </TableHeader>
+                        <TableBody>
+                          {rows.map((row) => (
+                            <TableRow key={row.id}>
+                              <TableCell className="px-4 py-4 font-medium">{row.name}</TableCell>
+                              {weekColumns.map((week) => (
+                                <TableCell key={`${row.id}-${week}`} className="px-4 py-4">
+                                  {formatPoint(row.weekly?.[String(week)] ?? row.weekly?.[week] ?? 0)}
+                                </TableCell>
+                              ))}
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+
+                    <div className="overflow-hidden rounded-[24px] border border-border/80">
+                      <div className="border-b border-border/70 bg-muted/35 px-4 py-3">
+                        <p className="text-sm font-semibold text-foreground">{selectedMonthLabel} {selectedYear} designer points</p>
+                      </div>
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-muted/25 hover:bg-muted/25">
+                            <TableHead className="h-12 min-w-44 px-4 text-xs font-semibold uppercase tracking-[0.18em]">Designer</TableHead>
+                            <TableHead className="h-12 min-w-32 px-4 text-xs font-semibold uppercase tracking-[0.18em]">KPI Score</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {rows.map((row) => (
+                            <TableRow key={row.id}>
+                              <TableCell className="px-4 py-4 font-medium">{row.name}</TableCell>
+                              <TableCell className="px-4 py-4">{formatPoint(row.total)}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </>
                 )}
               </CardContent>
             </Card>
