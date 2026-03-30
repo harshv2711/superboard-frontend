@@ -14,8 +14,10 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Swiper, SwiperSlide } from "swiper/react";
 import { useLocation } from "react-router-dom";
 import { toast } from "sonner";
+import "swiper/css";
 
 const TONES = {
   blue: "border-blue-200 bg-blue-50/70",
@@ -26,15 +28,15 @@ const TONES = {
 };
 
 const KANBAN_STAGE_COLUMNS = [
-  { id: "backlog", name: "Backlog", tone: TONES.blue },
+  { id: "backlog", name: "Initiate", tone: TONES.blue },
   { id: "on_going", name: "Ongoing", tone: TONES.amber },
   { id: "complete", name: "Complete", tone: TONES.emerald },
   {
     id: "approved_by_art_director_waiting_for_approval",
-    name: "Approved By Art Director/ Waiting for approval",
+    name: "Approved By Art Director",
     tone: TONES.violet,
   },
-  { id: "approved", name: "Approved", tone: TONES.rose },
+  { id: "approved", name: "Approved by Client", tone: TONES.rose },
 ];
 
 const KANBAN_VIEW_CONFIG = {
@@ -93,6 +95,55 @@ function getTaskStage(task) {
 function getTaskWorkflowColumn(task, viewMode) {
   void viewMode;
   return getTaskStage(task);
+}
+
+function canUserMoveTaskStage(task, destinationColumnId, user) {
+  if (!task || !user) {
+    return {
+      allowed: false,
+      message: "You do not have permission to move this task.",
+    };
+  }
+
+  const currentStage = getTaskStage(task);
+  const nextStage = destinationColumnId;
+
+  if (currentStage === nextStage) {
+    return { allowed: true, message: "" };
+  }
+
+  const executionStages = new Set(["backlog", "on_going", "complete"]);
+  const assignedArtDirectorStages = new Set([
+    "backlog",
+    "on_going",
+    "complete",
+    "approved_by_art_director_waiting_for_approval",
+  ]);
+  const isAssignedUser = String(task.designer || "") === String(user.id || user.user_id || "");
+
+  if (isAssignedUser && user.role === "art_director" && assignedArtDirectorStages.has(currentStage) && assignedArtDirectorStages.has(nextStage)) {
+    return { allowed: true, message: "" };
+  }
+
+  if (isAssignedUser && executionStages.has(currentStage) && executionStages.has(nextStage)) {
+    return { allowed: true, message: "" };
+  }
+
+  const allowedStageScopes = {
+    designer: new Set(["backlog", "on_going", "complete"]),
+    art_director: new Set(["complete", "approved_by_art_director_waiting_for_approval"]),
+    account_planner: new Set(["approved_by_art_director_waiting_for_approval", "approved"]),
+  };
+
+  const allowedStages = allowedStageScopes[user.role];
+  if (!allowedStages || !allowedStages.has(currentStage) || !allowedStages.has(nextStage)) {
+    return {
+      allowed: false,
+      message: "You can only move tasks within the stages allowed for your role.",
+    };
+  }
+
+  return { allowed: true, message: "" };
 }
 
 function getTaskType(task) {
@@ -205,11 +256,11 @@ function KanbanColumn({ column, isSaving }) {
         <div
           ref={provided.innerRef}
           {...provided.droppableProps}
-          className={`flex min-h-[340px] w-[280px] min-w-[280px] flex-col rounded-[1.6rem] border p-4 shadow-[0_22px_60px_-36px_rgba(15,23,42,0.3)] transition md:w-[300px] md:min-w-[300px] xl:w-[260px] xl:min-w-[260px] 2xl:w-[280px] 2xl:min-w-[280px] ${column.tone} ${snapshot.isDraggingOver ? "ring-2 ring-slate-900/15" : ""}`}
+          className={`flex min-h-[340px] w-full min-w-0 flex-col rounded-[1.6rem] border p-4 shadow-[0_22px_60px_-36px_rgba(15,23,42,0.3)] transition ${column.tone} ${snapshot.isDraggingOver ? "ring-2 ring-slate-900/15" : ""}`}
         >
           <div className="mb-4 flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <h2 className="break-words text-sm font-semibold uppercase leading-7 tracking-[0.16em] text-slate-700 md:text-base">
+              <h2 className="break-words text-sm font-semibold uppercase leading-7 tracking-normal text-slate-700 md:text-base">
                 {column.sequence}. {column.name}
               </h2>
               <p className="text-sm text-slate-500">{column.tasks.length} task{column.tasks.length === 1 ? "" : "s"}</p>
@@ -469,6 +520,14 @@ export default function TaskStagesKanbanPage() {
     if (!draggableId.startsWith("task-")) return;
 
     const taskId = draggableId.replace("task-", "");
+    const task = tasks.find((item) => String(item.id) === String(taskId));
+    const permission = canUserMoveTaskStage(task, destination.droppableId, currentUser);
+
+    if (!permission.allowed) {
+      toast.error(permission.message);
+      return;
+    }
+
     await moveTaskToColumn(taskId, destination.droppableId);
   }
 
@@ -524,13 +583,27 @@ export default function TaskStagesKanbanPage() {
               <div className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-700">{error}</div>
             ) : (
               <DragDropContext onDragEnd={handleDragEnd}>
-                <div className="kanban-scroll min-w-0 overflow-x-auto px-1 pb-4 [scrollbar-gutter:stable_both-edges]">
-                  <div className="flex min-w-max items-start gap-3 pl-1 pr-6">
-                    {columns.map((column) => (
-                      <KanbanColumn key={column.id} column={column} isSaving={column.tasks.some((task) => String(task.id) === savingTaskId)} />
-                    ))}
-                  </div>
-                </div>
+                <Swiper
+                  spaceBetween={16}
+                  slidesPerView={1.08}
+                  grabCursor
+                  breakpoints={{
+                    640: { slidesPerView: 1.2 },
+                    768: { slidesPerView: 2 },
+                    1024: { slidesPerView: 3 },
+                    1280: { slidesPerView: 3 },
+                  }}
+                  className="w-full overflow-visible pb-4"
+                >
+                  {columns.map((column) => (
+                    <SwiperSlide key={column.id} className="!h-auto">
+                      <KanbanColumn
+                        column={column}
+                        isSaving={column.tasks.some((task) => String(task.id) === savingTaskId)}
+                      />
+                    </SwiperSlide>
+                  ))}
+                </Swiper>
               </DragDropContext>
             )}
           </div>

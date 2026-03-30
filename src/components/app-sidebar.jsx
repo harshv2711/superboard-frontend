@@ -75,25 +75,9 @@ const data = {
         <ClipboardListIcon />
       ),
     },
-  ],
-  kanbanDocuments: [
     {
-      name: "Designer Kanban",
-      url: "/designer/kanban",
-      icon: (
-        <ClipboardListIcon />
-      ),
-    },
-    {
-      name: "Art Director Kanban",
-      url: "/art-director/kanban",
-      icon: (
-        <ClipboardListIcon />
-      ),
-    },
-    {
-      name: "Account Planner Kanban",
-      url: "/account-planing/kanban",
+      name: "Post KPI",
+      url: "/reports/post-kpi",
       icon: (
         <ClipboardListIcon />
       ),
@@ -108,7 +92,11 @@ function getNavMainForRole(role) {
       .filter((item) => item.url === "/account-planing" || item.title === "Account & Planing")
       .map((item) => ({
         ...item,
-        items: (item.items || []).filter((subItem) => subItem.url !== "/account-planing/type-of-work"),
+        items: (item.items || []).filter(
+          (subItem) =>
+            subItem.url !== "/account-planing/type-of-work" &&
+            subItem.url !== "/account-planing/negative-remarks",
+        ),
       }));
   }
   if (role === "art_director") {
@@ -199,16 +187,23 @@ export function AppSidebar({
     return data.documents;
   }, [user.role]);
   const kanbanItems = useMemo(() => {
-    if (user.role === "designer") {
-      return data.kanbanDocuments.filter((item) => item.url === "/designer/kanban");
-    }
-    if (user.role === "art_director") {
-      return data.kanbanDocuments.filter((item) => item.url === "/art-director/kanban");
-    }
-    if (user.role === "account_planner") {
-      return data.kanbanDocuments.filter((item) => item.url === "/account-planing/kanban");
-    }
-    return data.kanbanDocuments;
+    const kanbanUrlByRole = {
+      designer: "/designer/kanban",
+      art_director: "/art-director/kanban",
+      account_planner: "/account-planing/kanban",
+      superuser: "/account-planing/kanban",
+    };
+
+    const targetUrl = kanbanUrlByRole[user.role];
+    if (!targetUrl) return [];
+
+    return [
+      {
+        name: "Task Kanban View",
+        url: targetUrl,
+        icon: <ClipboardListIcon />,
+      },
+    ];
   }, [user.role]);
 
   useEffect(() => {
@@ -252,7 +247,7 @@ export function AppSidebar({
       </SidebarHeader>
       <SidebarContent>
         <NavMain items={navMainItems} />
-        <NavDocuments items={kanbanItems} label="Kanban View" />
+        <NavDocuments items={kanbanItems} label="" />
         <NavDocuments items={documentItems} />
       </SidebarContent>
       <SidebarFooter>

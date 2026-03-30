@@ -31,6 +31,19 @@ const TASK_PRIORITY_BADGE_STYLES = {
   medium: "border-amber-200 bg-amber-50 text-amber-700",
   low: "border-emerald-200 bg-emerald-50 text-emerald-700",
 };
+
+const PLATFORM_OPTIONS = [
+  { value: "instagram", label: "Instagram" },
+  { value: "facebook", label: "Facebook" },
+  { value: "linkedin", label: "LinkedIn" },
+  { value: "x", label: "X" },
+  { value: "youtube", label: "YouTube" },
+  { value: "tiktok", label: "TikTok" },
+  { value: "pinterest", label: "Pinterest" },
+  { value: "snapchat", label: "Snapchat" },
+  { value: "threads", label: "Threads" },
+  { value: "whatsapp", label: "WhatsApp" },
+];
 const EXCELLENCE_OPTIONS = Array.from({ length: 20 }, (_, index) => ((index + 1) * 0.5).toFixed(1));
 const EMPTY_EDITOR_STATE = {
   root: {
@@ -100,6 +113,12 @@ function getTaskPriority(task) {
 function getTaskPriorityBadgeClass(task) {
   const rawPriority = task?.priority || "";
   return TASK_PRIORITY_BADGE_STYLES[rawPriority] || "border-border bg-background text-foreground";
+}
+
+function getTaskPlatformLabel(task) {
+  const rawValue = String(task?.platform || "");
+  if (!rawValue) return "-";
+  return PLATFORM_OPTIONS.find((option) => option.value === rawValue)?.label || rawValue;
 }
 
 function formatRemarkPoint(value) {
@@ -507,6 +526,10 @@ function TaskCard({
             <p className="mt-2 font-medium text-foreground">{task.type_of_work_name || "-"}</p>
           </div>
           <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Platform</p>
+            <p className="mt-2 font-medium text-foreground">{getTaskPlatformLabel(task)}</p>
+          </div>
+          <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Target Date</p>
             <p className="mt-2 font-medium text-foreground">{formatDate(task.target_date)}</p>
           </div>
@@ -596,6 +619,7 @@ const EMPTY_TASK_FORM = {
   priority: "medium",
   designerId: "",
   typeOfWorkId: "",
+  platform: "",
   slides: "1",
   impressions: "",
   ctr: "",
@@ -1123,6 +1147,7 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
       priority: baseTask?.priority || "medium",
       designerId: baseTask?.designer ? String(baseTask.designer) : "",
       typeOfWorkId: baseTask?.type_of_work ? String(baseTask.type_of_work) : "",
+      platform: baseTask?.platform || "",
       slides: baseTask?.slides === null || baseTask?.slides === undefined || baseTask?.slides === "" ? "1" : String(baseTask.slides),
       impressions:
         baseTask?.impressions === null || baseTask?.impressions === undefined || baseTask?.impressions === ""
@@ -1184,6 +1209,7 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
       priority: baseTask?.priority || "medium",
       designerId: baseTask?.designer ? String(baseTask.designer) : "",
       typeOfWorkId: baseTask?.type_of_work ? String(baseTask.type_of_work) : "",
+      platform: baseTask?.platform || "",
       slides: baseTask?.slides === null || baseTask?.slides === undefined || baseTask?.slides === "" ? "1" : String(baseTask.slides),
       impressions:
         baseTask?.impressions === null || baseTask?.impressions === undefined || baseTask?.impressions === ""
@@ -1250,6 +1276,7 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
         priority: task.priority || "medium",
         designerId: task.designer ? String(task.designer) : "",
         typeOfWorkId: task.type_of_work ? String(task.type_of_work) : "",
+        platform: task.platform || "",
         slides: task.slides === null || task.slides === undefined || task.slides === "" ? "1" : String(task.slides),
         impressions:
           task.impressions === null || task.impressions === undefined || task.impressions === ""
@@ -1368,6 +1395,7 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
           scope_of_work: taskForm.scopeOfWorkId ? Number(taskForm.scopeOfWorkId) : null,
           priority: taskForm.priority,
           type_of_work: taskForm.typeOfWorkId ? Number(taskForm.typeOfWorkId) : null,
+          platform: taskForm.platform || "",
           slides: taskForm.slides ? Number(taskForm.slides) : 1,
           impressions: taskForm.impressions ? Number(taskForm.impressions) : null,
           ctr: taskForm.ctr ? Number(taskForm.ctr) : null,
@@ -2234,10 +2262,10 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
                           </Select>
                         </div>
 
-                        <div className="space-y-2">
-                          <Label htmlFor="task-slides">Slides</Label>
-                          <Input
-                            id="task-slides"
+                      <div className="space-y-2">
+                        <Label htmlFor="task-slides">Slides</Label>
+                        <Input
+                          id="task-slides"
                             type="number"
                             min="1"
                             step="1"
@@ -2246,6 +2274,28 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
                             onChange={(event) => setTaskForm((prev) => ({ ...prev, slides: event.target.value }))}
                             className={isReadOnlyTaskForm ? "bg-muted text-muted-foreground" : ""}
                           />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="task-platform">Platform</Label>
+                          <Select
+                            value={taskForm.platform || "__none__"}
+                            disabled={isReadOnlyTaskForm}
+                            onValueChange={(value) =>
+                              setTaskForm((prev) => ({ ...prev, platform: value === "__none__" ? "" : value }))
+                            }>
+                            <SelectTrigger id="task-platform" className={`h-9 w-full rounded-md ${isReadOnlyTaskForm ? "bg-muted text-muted-foreground" : ""}`}>
+                              <SelectValue placeholder="Select platform" />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-72">
+                              <SelectItem value="__none__">Select platform</SelectItem>
+                              {PLATFORM_OPTIONS.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </div>
 
                         <div className="space-y-2">

@@ -7,6 +7,7 @@ import DeliverablesTrackerPage from "./pages/DeliverablesTrackerPage.jsx";
 import AccountPage from "./pages/AccountPage.jsx";
 import DesignerKpiPage from "./pages/DesignerKpiPage.jsx";
 import BrandKpiPage from "./pages/BrandKpiPage.jsx";
+import PostKpiPage from "./pages/PostKpiPage.jsx";
 import LoginPage from "./pages/LoginPage.jsx";
 import NegativeRemarksPage from "./pages/NegativeRemarksPage.jsx";
 import RegisterPage from "./pages/RegisterPage.jsx";
@@ -248,6 +249,14 @@ export default function App() {
         element={
           <RequireRole allowedRoles={["superuser"]}>
             <BrandKpiPage />
+          </RequireRole>
+        }
+      />
+      <Route
+        path="/reports/post-kpi"
+        element={
+          <RequireRole allowedRoles={["superuser", "account_planner", "art_director"]}>
+            <PostKpiPage />
           </RequireRole>
         }
       />

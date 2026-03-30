@@ -31,6 +31,19 @@ const TASK_PRIORITY_BADGE_STYLES = {
   low: "border-emerald-200 bg-emerald-50 text-emerald-700",
 };
 
+const PLATFORM_OPTIONS = [
+  { value: "instagram", label: "Instagram" },
+  { value: "facebook", label: "Facebook" },
+  { value: "linkedin", label: "LinkedIn" },
+  { value: "x", label: "X" },
+  { value: "youtube", label: "YouTube" },
+  { value: "tiktok", label: "TikTok" },
+  { value: "pinterest", label: "Pinterest" },
+  { value: "snapchat", label: "Snapchat" },
+  { value: "threads", label: "Threads" },
+  { value: "whatsapp", label: "WhatsApp" },
+];
+
 const EXCELLENCE_OPTIONS = Array.from({ length: 20 }, (_, index) => ((index + 1) * 0.5).toFixed(1));
 const EMPTY_EDITOR_STATE = {
   root: {
@@ -67,6 +80,7 @@ const EMPTY_TASK_FORM = {
   priority: "medium",
   designerId: "",
   typeOfWorkId: "",
+  platform: "",
   slides: "1",
   impressions: "",
   ctr: "",
@@ -155,6 +169,12 @@ function getTaskPriorityBadgeClass(task) {
   return TASK_PRIORITY_BADGE_STYLES[rawPriority] || "border-border bg-background text-foreground";
 }
 
+function getTaskPlatformLabel(task) {
+  const rawValue = String(task?.platform || "");
+  if (!rawValue) return "-";
+  return PLATFORM_OPTIONS.find((option) => option.value === rawValue)?.label || rawValue;
+}
+
 function getAttachmentUrl(attachment) {
   const file = attachment?.file_url || attachment?.file || "";
   if (!file) return "";
@@ -233,8 +253,32 @@ function getTaskCardToneClass(task) {
   return "border-slate-300 bg-white";
 }
 
+function getTaskStageValueToneClass(task) {
+  if (task?.stage === "approved" || isTaskCompleted(task)) {
+    return "text-emerald-700";
+  }
+  if (task?.stage === "approved_by_art_director_waiting_for_approval") {
+    return "text-amber-700";
+  }
+  if (task?.stage === "complete") {
+    return "text-sky-700";
+  }
+  if (task?.stage === "on_going") {
+    return "text-amber-700";
+  }
+  return "text-slate-700";
+}
+
 function canDesignerModifyCompletion(task) {
   return task?.stage !== "approved_by_art_director_waiting_for_approval" && task?.stage !== "approved";
+}
+
+function canArtDirectorModifyApproval(task) {
+  return task?.stage === "complete" || task?.stage === "approved_by_art_director_waiting_for_approval";
+}
+
+function canAccountPlannerModifyApproval(task) {
+  return task?.stage === "approved_by_art_director_waiting_for_approval" || task?.stage === "approved";
 }
 
 function getTaskServiceCategory(task) {
@@ -323,6 +367,15 @@ function formatDateTime(isoDate) {
   }).format(date);
 }
 
+function getTaskStageLabel(task) {
+  if (task?.stage === "backlog") return "Initiate";
+  if (task?.stage === "on_going") return "Ongoing";
+  if (task?.stage === "complete") return "Complete";
+  if (task?.stage === "approved_by_art_director_waiting_for_approval") return "Approved By Art Director";
+  if (task?.stage === "approved") return "Approved by Client";
+  return task?.stage || "-";
+}
+
 function TaskHistoryDrawer({ open, onOpenChange, task, items, canDeleteItem, deletingTaskId, onDeleteItem }) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -347,8 +400,8 @@ function TaskHistoryDrawer({ open, onOpenChange, task, items, canDeleteItem, del
                     }`}
                   />
                   <div
-                    className={`rounded-3xl border px-5 py-4 shadow-sm ${
-                      item.isSelected ? "border-primary/40 bg-primary/5" : "border-border bg-card"
+                    className={`rounded-3xl border px-5 py-4 shadow-sm ${getTaskCardToneClass(item)} ${
+                      item.isSelected ? "ring-1 ring-primary/30" : ""
                     }`}>
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex flex-wrap items-center gap-2">
@@ -392,6 +445,10 @@ function TaskHistoryDrawer({ open, onOpenChange, task, items, canDeleteItem, del
                         <p className="mt-2 font-medium text-foreground">{item.type_of_work_name || "-"}</p>
                       </div>
                       <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Task Stage</p>
+                        <p className={`mt-2 font-medium ${getTaskStageValueToneClass(item)}`}>{getTaskStageLabel(item)}</p>
+                      </div>
+                      <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
                         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Created</p>
                         <p className="mt-2 font-medium text-foreground">{formatDateTime(item.created_at || item.updated_at)}</p>
                       </div>
@@ -429,15 +486,25 @@ function TaskCard({
   hasHistory,
   designerOptions,
   assigningDesigner,
-  updatingDesignerCompletion,
+  updatingTaskStage,
   onEdit,
   onAssignDesigner,
-  onToggleDesignerCompletion,
+  onToggleMarkComplete,
+  onToggleArtDirectorApproval,
+  onToggleClientApproval,
   onAddRevision,
   onAddRedo,
   onOpenHistory,
 }) {
   const completed = isTaskCompleted(task);
+  const canShowMarkComplete = isDesigner && canDesignerModifyCompletion(task);
+  const isMarkedComplete = task?.stage === "complete";
+  const canShowArtDirectorApproval = isArtDirector && canArtDirectorModifyApproval(task);
+  const isMarkedApprovedByArtDirector = task?.stage === "approved_by_art_director_waiting_for_approval";
+  const showApprovedByArtDirectorTag = (isDesigner || isAccountPlanner) && isMarkedApprovedByArtDirector;
+  const canShowClientApproval = isAccountPlanner && canAccountPlannerModifyApproval(task);
+  const isMarkedApprovedByClient = task?.stage === "approved";
+  const showCompletedByDesignerTag = task?.stage === "complete";
 
   return (
     <article
@@ -454,9 +521,19 @@ function TaskCard({
             <Badge variant="secondary" className="rounded-full px-3 py-1">
               {getTaskTypeLabel(task)}
             </Badge>
+            {showApprovedByArtDirectorTag ? (
+              <Badge className="rounded-full bg-amber-500 px-3 py-1 text-white hover:bg-amber-500">
+                Approved By Art Director
+              </Badge>
+            ) : null}
+            {showCompletedByDesignerTag ? (
+              <Badge className="rounded-full bg-sky-600 px-3 py-1 text-white hover:bg-sky-600">
+                Completed by Designer
+              </Badge>
+            ) : null}
             {completed ? (
               <Badge className="rounded-full bg-emerald-600 px-3 py-1 text-white hover:bg-emerald-600">
-                Completed
+                Approved by Client
               </Badge>
             ) : null}
           </div>
@@ -469,6 +546,63 @@ function TaskCard({
         <div className="space-y-2">
           <h3 className="text-xl font-semibold tracking-tight text-foreground">{getTaskName(task)}</h3>
         </div>
+        {canShowMarkComplete ? (
+          <label className="flex items-center gap-3 rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+            <Checkbox
+              checked={isMarkedComplete}
+              disabled={updatingTaskStage}
+              onCheckedChange={(checked) => {
+                onToggleMarkComplete(task, Boolean(checked));
+              }}
+            />
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Mark Complete</p>
+              {updatingTaskStage ? (
+                <p className="mt-1 text-sm font-medium text-foreground">
+                  {isMarkedComplete ? "Moving task to ongoing..." : "Marking task as complete..."}
+                </p>
+              ) : null}
+            </div>
+          </label>
+        ) : null}
+        {canShowArtDirectorApproval ? (
+          <label className="flex items-center gap-3 rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+            <Checkbox
+              checked={isMarkedApprovedByArtDirector}
+              disabled={updatingTaskStage}
+              onCheckedChange={(checked) => {
+                onToggleArtDirectorApproval(task, Boolean(checked));
+              }}
+            />
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Approved By Art Director</p>
+              {updatingTaskStage ? (
+                <p className="mt-1 text-sm font-medium text-foreground">
+                  {isMarkedApprovedByArtDirector ? "Moving task back to complete..." : "Approving task as art director..."}
+                </p>
+              ) : null}
+            </div>
+          </label>
+        ) : null}
+        {canShowClientApproval ? (
+          <label className="flex items-center gap-3 rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+            <Checkbox
+              checked={isMarkedApprovedByClient}
+              disabled={updatingTaskStage}
+              onCheckedChange={(checked) => {
+                onToggleClientApproval(task, Boolean(checked));
+              }}
+            />
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Approved by Client</p>
+              {updatingTaskStage ? (
+                <p className="mt-1 text-sm font-medium text-foreground">
+                  {isMarkedApprovedByClient ? "Moving task back to approved by art director..." : "Approving task by client..."}
+                </p>
+              ) : null}
+            </div>
+          </label>
+        ) : null}
         <div className="grid gap-3 text-sm">
           <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Instructions/ Brief by Brand</p>
@@ -511,21 +645,6 @@ function TaskCard({
               )}
             </div>
           ) : null}
-          {isDesigner ? (
-            <label className="flex items-center gap-3 rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
-              <Checkbox
-                checked={Boolean(task.is_marked_completed_by_designer)}
-                disabled={updatingDesignerCompletion || !canDesignerModifyCompletion(task)}
-                onCheckedChange={(checked) => onToggleDesignerCompletion(task, Boolean(checked))}
-              />
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                  Designer Completion
-                </p>
-                <p className="mt-1 text-sm font-medium text-foreground">Is marked completed by designer</p>
-              </div>
-            </label>
-          ) : null}
           <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Service Category</p>
             <p className="mt-2 font-medium text-foreground">{getTaskServiceCategory(task)}</p>
@@ -533,6 +652,10 @@ function TaskCard({
           <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Type Of Work</p>
             <p className="mt-2 font-medium text-foreground">{task.type_of_work_name || "-"}</p>
+          </div>
+          <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Slides</p>
+            <p className="mt-2 font-medium text-foreground">{task.slides ?? "-"}</p>
           </div>
           <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Target Date</p>
@@ -585,21 +708,23 @@ function TaskCard({
         </div>
         {canEdit || canManageTaskFlow || hasHistory ? (
           <div className="flex flex-wrap gap-2 pt-1">
-            {canManageTaskFlow ? (
-              <Button type="button" variant="outline" className="rounded-full" onClick={() => onAddRevision(task)}>
-                Add revision
-              </Button>
-            ) : null}
-            {canManageTaskFlow ? (
-              <Button type="button" variant="outline" className="rounded-full" onClick={() => onAddRedo(task)}>
-                Add redo
-              </Button>
-            ) : null}
-            {hasHistory ? (
-              <Button type="button" variant="outline" className="rounded-full" onClick={() => onOpenHistory(task)}>
-                View history
-              </Button>
-            ) : null}
+            <>
+              {canManageTaskFlow ? (
+                <Button type="button" variant="outline" className="rounded-full" onClick={() => onAddRevision(task)}>
+                  Add revision
+                </Button>
+              ) : null}
+              {canManageTaskFlow ? (
+                <Button type="button" variant="outline" className="rounded-full" onClick={() => onAddRedo(task)}>
+                  Add redo
+                </Button>
+              ) : null}
+              {hasHistory ? (
+                <Button type="button" variant="outline" className="rounded-full" onClick={() => onOpenHistory(task)}>
+                  View history
+                </Button>
+              ) : null}
+            </>
           </div>
         ) : null}
       </div>
@@ -608,6 +733,10 @@ function TaskCard({
 }
 
 export default function DailyTaskPage() {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentYearStartKey = new Date(currentYear, 0, 1).toISOString().slice(0, 10);
+  const currentYearEndKey = new Date(currentYear, 11, 31).toISOString().slice(0, 10);
   const todayKey = new Date().toISOString().slice(0, 10);
   const clientFilterRef = useRef(null);
   const designerFilterRef = useRef(null);
@@ -632,7 +761,7 @@ export default function DailyTaskPage() {
   const [inlineTypeOfWorkForm, setInlineTypeOfWorkForm] = useState(EMPTY_INLINE_TYPE_OF_WORK_FORM);
   const [savingInlineTypeOfWork, setSavingInlineTypeOfWork] = useState(false);
   const [assigningDesignerTaskId, setAssigningDesignerTaskId] = useState(null);
-  const [updatingDesignerCompletionTaskId, setUpdatingDesignerCompletionTaskId] = useState(null);
+  const [updatingTaskStageTaskId, setUpdatingTaskStageTaskId] = useState(null);
   const [deletingTaskAttachmentId, setDeletingTaskAttachmentId] = useState(null);
   const [reloadTick, setReloadTick] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
@@ -642,8 +771,8 @@ export default function DailyTaskPage() {
   const [clientFilterQuery, setClientFilterQuery] = useState("");
   const [designerFilterOpen, setDesignerFilterOpen] = useState(false);
   const [designerFilterQuery, setDesignerFilterQuery] = useState("");
-  const [dateFrom, setDateFrom] = useState(todayKey);
-  const [dateTo, setDateTo] = useState(todayKey);
+  const [dateFrom, setDateFrom] = useState(currentYearStartKey);
+  const [dateTo, setDateTo] = useState(currentYearEndKey);
   const [targetDateFrom, setTargetDateFrom] = useState("");
   const [targetDateTo, setTargetDateTo] = useState("");
   const [showOriginal, setShowOriginal] = useState(true);
@@ -855,7 +984,7 @@ export default function DailyTaskPage() {
         if (selectedClientIds.length > 0) {
           if (!selectedClientIds.includes(String(task.client || ""))) return false;
         }
-        if (isArtDirector && selectedDesignerIds.length > 0) {
+        if ((isArtDirector || isSuperuser) && selectedDesignerIds.length > 0) {
           if (!selectedDesignerIds.includes(String(task.designer || ""))) return false;
         }
 
@@ -1021,6 +1150,7 @@ export default function DailyTaskPage() {
       priority: task.priority || "medium",
       designerId: task.designer ? String(task.designer) : "",
       typeOfWorkId: task.type_of_work ? String(task.type_of_work) : "",
+      platform: task.platform || "",
       slides: task.slides === null || task.slides === undefined || task.slides === "" ? "1" : String(task.slides),
       impressions:
         task.impressions === null || task.impressions === undefined || task.impressions === ""
@@ -1078,6 +1208,7 @@ export default function DailyTaskPage() {
       priority: task.priority || "medium",
       designerId: task.designer ? String(task.designer) : "",
       typeOfWorkId: task.type_of_work ? String(task.type_of_work) : "",
+      platform: task.platform || "",
       slides: task.slides === null || task.slides === undefined || task.slides === "" ? "1" : String(task.slides),
       impressions:
         task.impressions === null || task.impressions === undefined || task.impressions === ""
@@ -1142,6 +1273,7 @@ export default function DailyTaskPage() {
         priority: retrievedTask.priority || "medium",
         designerId: retrievedTask.designer ? String(retrievedTask.designer) : "",
         typeOfWorkId: retrievedTask.type_of_work ? String(retrievedTask.type_of_work) : "",
+        platform: retrievedTask.platform || "",
         slides:
           retrievedTask.slides === null || retrievedTask.slides === undefined || retrievedTask.slides === ""
             ? "1"
@@ -1192,6 +1324,7 @@ export default function DailyTaskPage() {
         priority: task.priority || "medium",
         designerId: task.designer ? String(task.designer) : "",
         typeOfWorkId: task.type_of_work ? String(task.type_of_work) : "",
+        platform: task.platform || "",
         slides: task.slides === null || task.slides === undefined || task.slides === "" ? "1" : String(task.slides),
         impressions:
           task.impressions === null || task.impressions === undefined || task.impressions === ""
@@ -1288,6 +1421,7 @@ export default function DailyTaskPage() {
         instructions: taskForm.instructions,
         priority: taskForm.priority,
         type_of_work: taskForm.typeOfWorkId ? Number(taskForm.typeOfWorkId) : null,
+        platform: taskForm.platform || "",
         slides: taskForm.slides ? Number(taskForm.slides) : 1,
         impressions: taskForm.impressions ? Number(taskForm.impressions) : null,
         ctr: taskForm.ctr ? Number(taskForm.ctr) : null,
@@ -1322,19 +1456,11 @@ export default function DailyTaskPage() {
         payload.have_minor_changes = taskForm.haveMinorChanges;
       }
 
-      if (drawerMode === "edit") {
-        if (isSuperuser) {
-          payload.is_marked_completed_by_superadmin = taskForm.isMarkedCompletedBySuperadmin;
-          payload.is_marked_completed_by_account_planner = taskForm.isMarkedCompletedByAccountPlanner;
-          payload.is_marked_completed_by_art_director = taskForm.isMarkedCompletedByArtDirector;
-          payload.is_marked_completed_by_designer = taskForm.isMarkedCompletedByDesigner;
-        } else if (isAccountPlanner) {
-          payload.is_marked_completed_by_account_planner = taskForm.isMarkedCompletedByAccountPlanner;
-        } else if (isArtDirector) {
-          payload.is_marked_completed_by_art_director = taskForm.isMarkedCompletedByArtDirector;
-        } else if (isDesigner) {
-          payload.is_marked_completed_by_designer = taskForm.isMarkedCompletedByDesigner;
-        }
+      if (drawerMode === "edit" && isSuperuser) {
+        payload.is_marked_completed_by_superadmin = taskForm.isMarkedCompletedBySuperadmin;
+        payload.is_marked_completed_by_account_planner = taskForm.isMarkedCompletedByAccountPlanner;
+        payload.is_marked_completed_by_art_director = taskForm.isMarkedCompletedByArtDirector;
+        payload.is_marked_completed_by_designer = taskForm.isMarkedCompletedByDesigner;
       }
 
       if (drawerMode === "edit" && taskForm.id) {
@@ -1525,28 +1651,78 @@ export default function DailyTaskPage() {
     }
   }
 
-  async function handleToggleDesignerCompletion(task, checked) {
+  async function handleToggleMarkComplete(task, checked) {
     if (!canDesignerEditTask(task)) {
       toast.error("You do not have permission to update this task.");
       return;
     }
     if (!canDesignerModifyCompletion(task)) {
-      toast.error("Designer completion is locked for this task.");
+      toast.error("This task cannot be updated from here.");
       return;
     }
 
-    setUpdatingDesignerCompletionTaskId(String(task.id));
+    setUpdatingTaskStageTaskId(String(task.id));
     try {
-      const nextStage = checked ? "complete" : (task?.stage === "backlog" ? "backlog" : "on_going");
+      const nextStage = checked ? "complete" : "on_going";
       await superboardApi.tasks.patch(task.id, {
         stage: nextStage,
       });
-      toast.success("Designer completion updated successfully.");
+      toast.success(checked ? "Task marked complete successfully." : "Task moved back to ongoing successfully.");
       setReloadTick((value) => value + 1);
     } catch (requestError) {
-      toast.error(requestError.message || "Failed to update designer completion.");
+      toast.error(requestError.message || "Failed to update task stage.");
     } finally {
-      setUpdatingDesignerCompletionTaskId(null);
+      setUpdatingTaskStageTaskId(null);
+    }
+  }
+
+  async function handleToggleArtDirectorApproval(task, checked) {
+    if (!isArtDirector || !canEditTask(task)) {
+      toast.error("You do not have permission to update this task.");
+      return;
+    }
+    if (!canArtDirectorModifyApproval(task)) {
+      toast.error("This task cannot be updated from here.");
+      return;
+    }
+
+    setUpdatingTaskStageTaskId(String(task.id));
+    try {
+      const nextStage = checked ? "approved_by_art_director_waiting_for_approval" : "complete";
+      await superboardApi.tasks.patch(task.id, {
+        stage: nextStage,
+      });
+      toast.success(checked ? "Task approved by art director successfully." : "Task moved back to complete successfully.");
+      setReloadTick((value) => value + 1);
+    } catch (requestError) {
+      toast.error(requestError.message || "Failed to update task stage.");
+    } finally {
+      setUpdatingTaskStageTaskId(null);
+    }
+  }
+
+  async function handleToggleClientApproval(task, checked) {
+    if (!isAccountPlanner || !canEditTask(task)) {
+      toast.error("You do not have permission to update this task.");
+      return;
+    }
+    if (!canAccountPlannerModifyApproval(task)) {
+      toast.error("This task cannot be updated from here.");
+      return;
+    }
+
+    setUpdatingTaskStageTaskId(String(task.id));
+    try {
+      const nextStage = checked ? "approved" : "approved_by_art_director_waiting_for_approval";
+      await superboardApi.tasks.patch(task.id, {
+        stage: nextStage,
+      });
+      toast.success(checked ? "Task approved by client successfully." : "Task moved back to approved by art director successfully.");
+      setReloadTick((value) => value + 1);
+    } catch (requestError) {
+      toast.error(requestError.message || "Failed to update task stage.");
+    } finally {
+      setUpdatingTaskStageTaskId(null);
     }
   }
 
@@ -1574,8 +1750,8 @@ export default function DailyTaskPage() {
     setSelectedDesignerIds([]);
     setClientFilterQuery("");
     setDesignerFilterQuery("");
-    setDateFrom("");
-    setDateTo("");
+    setDateFrom(currentYearStartKey);
+    setDateTo(currentYearEndKey);
     setTargetDateFrom("");
     setTargetDateTo("");
     setShowOriginal(true);
@@ -1616,7 +1792,7 @@ export default function DailyTaskPage() {
               {loading ? (
                 <Card className="rounded-[28px] border border-dashed border-border/80 bg-card/70 shadow-sm">
                   <CardContent className="flex min-h-80 items-center justify-center p-8 text-center text-sm text-muted-foreground">
-                    Loading today&apos;s tasks...
+                    Loading current year&apos;s tasks...
                   </CardContent>
                 </Card>
               ) : error ? (
@@ -1630,7 +1806,9 @@ export default function DailyTaskPage() {
                   <CardContent className="flex min-h-80 flex-col items-center justify-center p-8 text-center">
                     <p className="text-lg font-semibold text-foreground">No tasks found</p>
                     <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">
-                      Create a task and it will appear here.
+                      {showCompleted
+                        ? "No tasks were found for the current year."
+                        : "No incomplete tasks were found for the current year."}
                     </p>
                   </CardContent>
                 </Card>
@@ -1650,10 +1828,12 @@ export default function DailyTaskPage() {
                       hasHistory={taskIdsWithHistory.has(String(task.id))}
                       designerOptions={designerOptions}
                       assigningDesigner={assigningDesignerTaskId === String(task.id)}
-                      updatingDesignerCompletion={updatingDesignerCompletionTaskId === String(task.id)}
+                      updatingTaskStage={updatingTaskStageTaskId === String(task.id)}
                       onEdit={openEditTask}
                       onAssignDesigner={handleAssignDesigner}
-                      onToggleDesignerCompletion={handleToggleDesignerCompletion}
+                      onToggleMarkComplete={handleToggleMarkComplete}
+                      onToggleArtDirectorApproval={handleToggleArtDirectorApproval}
+                      onToggleClientApproval={handleToggleClientApproval}
                       onAddRevision={openCreateRevisionTask}
                       onAddRedo={openCreateRedoTask}
                       onOpenHistory={openTaskHistory}
@@ -1787,7 +1967,7 @@ export default function DailyTaskPage() {
                       </div>
                     ) : null}
 
-                    {isArtDirector ? (
+                    {isArtDirector || isSuperuser ? (
                       <div className="space-y-2">
                         <Label htmlFor="designer-filter" className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                           Filter by Designer
@@ -2139,46 +2319,6 @@ export default function DailyTaskPage() {
                           onChange={(event) => setTaskForm((prev) => ({ ...prev, slides: event.target.value }))}
                         />
                       </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="task-impressions">Impressions</Label>
-                        <Input
-                          id="task-impressions"
-                          type="number"
-                          min="0"
-                          step="1"
-                          value={taskForm.impressions}
-                          disabled={isReadOnlyTaskForm}
-                          onChange={(event) => setTaskForm((prev) => ({ ...prev, impressions: event.target.value }))}
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="task-ctr">CTR (%)</Label>
-                        <Input
-                          id="task-ctr"
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={taskForm.ctr}
-                          disabled={isReadOnlyTaskForm}
-                          onChange={(event) => setTaskForm((prev) => ({ ...prev, ctr: event.target.value }))}
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="task-engagement-rate">Engagement Rate (%)</Label>
-                        <Input
-                          id="task-engagement-rate"
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={taskForm.engagementRate}
-                          disabled={isReadOnlyTaskForm}
-                          onChange={(event) => setTaskForm((prev) => ({ ...prev, engagementRate: event.target.value }))}
-                        />
-                      </div>
-
                     </div>
 
                     {inlineTypeOfWorkOpen ? (
@@ -2482,78 +2622,66 @@ export default function DailyTaskPage() {
                       </div>
                     ) : null}
 
-                    {drawerMode === "edit" ? (
-                      <div className="space-y-3 rounded-2xl border border-border/80 bg-muted/20 p-4">
-                        <p className="text-sm font-semibold text-foreground">Completion Status</p>
-                        <label className="flex items-center gap-3 rounded-xl border border-border/70 bg-background px-3 py-3">
-                          <Checkbox
-                            checked={taskForm.isMarkedCompletedBySuperadmin}
-                            disabled={isReadOnlyTaskForm || !canToggleSuperadminCompletion}
-                            onCheckedChange={(checked) =>
-                              setTaskForm((prev) => ({
-                                ...prev,
-                                isMarkedCompletedBySuperadmin: Boolean(checked),
-                              }))
-                            }
-                          />
-                          <span className="text-sm text-foreground">Is marked completed by superadmin</span>
-                        </label>
-                        <label className="flex items-center gap-3 rounded-xl border border-border/70 bg-background px-3 py-3">
-                          <Checkbox
-                            checked={taskForm.isMarkedCompletedByAccountPlanner}
-                            disabled={
-                              isReadOnlyTaskForm ||
-                              !canToggleAccountPlannerCompletion ||
-                              (accountPlannerCompletionBlocked && !taskForm.isMarkedCompletedByAccountPlanner)
-                            }
-                            onCheckedChange={(checked) =>
-                              setTaskForm((prev) => ({
-                                ...prev,
-                                isMarkedCompletedByAccountPlanner: Boolean(checked),
-                              }))
-                            }
-                          />
-                          <span className="text-sm text-foreground">Is marked completed by account planner</span>
-                        </label>
-                        {accountPlannerCompletionBlocked ? (
-                          <p className="text-[12px] text-amber-700">
-                            Account Planner cannot mark as completed until Art Director and Designer have completed
-                            their tasks.
-                          </p>
-                        ) : null}
-                        {isAccountPlanner && artDirectorCompletionBlocked ? (
-                          <p className="text-[12px] text-amber-700">
-                            Art Director cannot mark as completed until Designer has completed the task.
-                          </p>
-                        ) : null}
-                        <label className="flex items-center gap-3 rounded-xl border border-border/70 bg-background px-3 py-3">
-                          <Checkbox
-                            checked={taskForm.isMarkedCompletedByArtDirector}
-                            disabled={isReadOnlyTaskForm || !canToggleArtDirectorCompletion}
-                            onCheckedChange={(checked) =>
-                              setTaskForm((prev) => ({
-                                ...prev,
-                                isMarkedCompletedByArtDirector: Boolean(checked),
-                              }))
-                            }
-                          />
-                          <span className="text-sm text-foreground">Is marked completed by art director</span>
-                        </label>
-                        <label className="flex items-center gap-3 rounded-xl border border-border/70 bg-background px-3 py-3">
-                          <Checkbox
-                            checked={taskForm.isMarkedCompletedByDesigner}
-                            disabled={!canToggleDesignerCompletion}
-                            onCheckedChange={(checked) =>
-                              setTaskForm((prev) => ({
-                                ...prev,
-                                isMarkedCompletedByDesigner: Boolean(checked),
-                              }))
-                            }
-                          />
-                          <span className="text-sm text-foreground">Is marked completed by designer</span>
-                        </label>
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="task-platform">Platform</Label>
+                        <Select
+                          value={taskForm.platform || "__none__"}
+                          disabled={isReadOnlyTaskForm}
+                          onValueChange={(value) => setTaskForm((prev) => ({ ...prev, platform: value === "__none__" ? "" : value }))}>
+                          <SelectTrigger id="task-platform" className={`h-9 w-full rounded-md ${isReadOnlyTaskForm ? "bg-muted text-muted-foreground" : ""}`}>
+                            <SelectValue placeholder="Select platform" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-72">
+                            <SelectItem value="__none__">Select platform</SelectItem>
+                            {PLATFORM_OPTIONS.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
-                    ) : null}
+
+                      <div className="space-y-2">
+                        <Label htmlFor="task-impressions">Impressions</Label>
+                        <Input
+                          id="task-impressions"
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={taskForm.impressions}
+                          disabled={isReadOnlyTaskForm}
+                          onChange={(event) => setTaskForm((prev) => ({ ...prev, impressions: event.target.value }))}
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="task-ctr">CTR (%)</Label>
+                        <Input
+                          id="task-ctr"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={taskForm.ctr}
+                          disabled={isReadOnlyTaskForm}
+                          onChange={(event) => setTaskForm((prev) => ({ ...prev, ctr: event.target.value }))}
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="task-engagement-rate">Engagement Rate (%)</Label>
+                        <Input
+                          id="task-engagement-rate"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={taskForm.engagementRate}
+                          disabled={isReadOnlyTaskForm}
+                          onChange={(event) => setTaskForm((prev) => ({ ...prev, engagementRate: event.target.value }))}
+                        />
+                      </div>
+                    </div>
 
                     {drawerMode === "edit" ? (
                       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
