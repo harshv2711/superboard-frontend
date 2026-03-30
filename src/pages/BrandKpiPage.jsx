@@ -47,8 +47,10 @@ function getMonthKeyFromDate(value) {
   return raw.slice(0, 7);
 }
 
+const ALLOWED_KPI_STAGES = new Set(["complete", "approved_by_art_director_waiting_for_approval", "approved"]);
+
 function isTaskEligibleForKpi(task) {
-  return task?.stage === "approved";
+  return ALLOWED_KPI_STAGES.has(String(task?.stage || ""));
 }
 
 function getTaskPointConfig(task, pointsByTypeId) {
@@ -115,6 +117,12 @@ function calculateOriginalTaskPoints(task, tasksById, childTaskIdsByParentId, ne
   return total;
 }
 
+function resolveOriginalTask(task, tasksById) {
+  if (task?.revision_of) return tasksById[String(task.revision_of)] || null;
+  if (task?.redo_of) return tasksById[String(task.redo_of)] || null;
+  return task || null;
+}
+
 function distributeRoundedSalaries(clientRows, designerSalary) {
   const salaryTarget = Math.round(Number(designerSalary || 0));
   if (!clientRows.length || salaryTarget <= 0) {
@@ -158,6 +166,7 @@ export default function BrandKpiPage() {
   const [negativeRemarkLinks, setNegativeRemarkLinks] = useState([]);
   const [selectedYear, setSelectedYear] = useState(String(currentYear));
   const [selectedMonth, setSelectedMonth] = useState(String(currentMonth));
+  const [selectedDesignerId, setSelectedDesignerId] = useState("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -259,19 +268,21 @@ export default function BrandKpiPage() {
     );
   }, [tasks]);
 
-  const monthlyEligibleOriginalTasks = useMemo(() => {
-    return tasks.filter((task) => {
-      if (!isTaskEligibleForKpi(task)) return false;
-      if (task?.revision_of || task?.redo_of) return false;
-      return getMonthKeyFromDate(task?.target_date) === selectedMonthKey;
-    });
-  }, [selectedMonthKey, tasks]);
-
   const designerById = useMemo(() => {
     return designers.reduce((accumulator, designer) => {
       accumulator[String(designer.id)] = designer;
       return accumulator;
     }, {});
+  }, [designers]);
+
+  const designerOptions = useMemo(() => {
+    return designers
+      .filter((designer) => String(designer.role || "") === "designer")
+      .map((designer) => ({
+        id: String(designer.id),
+        name: getDesignerName(designer),
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name));
   }, [designers]);
 
   const designerSalaryById = useMemo(() => {
@@ -281,27 +292,65 @@ export default function BrandKpiPage() {
     }, {});
   }, [designers]);
 
-  const designerRows = useMemo(() => {
-    const pointsByDesigner = monthlyEligibleOriginalTasks.reduce((accumulator, task) => {
-      const designerId = String(task?.designer || "");
+  const monthlyGroupedDesignerKpi = useMemo(() => {
+    const eligibleTasks = tasks.filter((task) => (
+      isTaskEligibleForKpi(task)
+      && getMonthKeyFromDate(task?.created_at) === selectedMonthKey
+    ));
+
+    const groupedTasks = eligibleTasks.reduce((accumulator, task) => {
+      const originalTask = resolveOriginalTask(task, tasksById);
+      if (!originalTask?.id) return accumulator;
+
+      const originalTaskId = String(originalTask.id);
+      if (!accumulator[originalTaskId]) {
+        accumulator[originalTaskId] = {
+          originalTask,
+          relatedTasks: {},
+        };
+      }
+      accumulator[originalTaskId].relatedTasks[String(task.id)] = task;
+      return accumulator;
+    }, {});
+
+    const originalTaskGroups = Object.values(groupedTasks).map((group) => {
+      const relatedTasks = Object.values(group.relatedTasks);
+      const points = calculateOriginalTaskPoints(
+        group.originalTask,
+        tasksById,
+        childTaskIdsByParentId,
+        negativeRemarkPointsByTaskId,
+        pointsByTypeId,
+      );
+
+      return {
+        originalTask: group.originalTask,
+        relatedTasks,
+        points,
+      };
+    });
+
+    const pointsByDesigner = originalTaskGroups.reduce((accumulator, group) => {
+      const designerId = String(group.originalTask?.designer || "");
       if (!designerId) return accumulator;
+      if (selectedDesignerId !== "all" && designerId !== selectedDesignerId) return accumulator;
 
-      const clientId = String(task?.client || "");
-      const points = calculateOriginalTaskPoints(task, tasksById, childTaskIdsByParentId, negativeRemarkPointsByTaskId, pointsByTypeId);
-
+      const clientId = String(group.originalTask?.client || "");
       if (!accumulator[designerId]) {
         accumulator[designerId] = {
           totalPoints: 0,
+          totalTasks: 0,
           clients: {},
         };
       }
 
-      accumulator[designerId].totalPoints += points;
-      accumulator[designerId].clients[clientId] = (accumulator[designerId].clients[clientId] || 0) + points;
+      accumulator[designerId].totalPoints += group.points;
+      accumulator[designerId].totalTasks += 1;
+      accumulator[designerId].clients[clientId] = (accumulator[designerId].clients[clientId] || 0) + group.points;
       return accumulator;
     }, {});
 
-    return Object.entries(pointsByDesigner)
+    const designerRows = Object.entries(pointsByDesigner)
       .map(([designerId, designerData]) => {
         const salary = Number(designerSalaryById[designerId] || 0);
         const totalPoints = Number(designerData.totalPoints || 0);
@@ -320,36 +369,30 @@ export default function BrandKpiPage() {
           name: getDesignerName(designerById[designerId]),
           salary,
           totalPoints,
+          totalTasks: Number(designerData.totalTasks || 0),
           clients: distributeRoundedSalaries(clientRows, salary),
         };
       })
       .sort((left, right) => right.totalPoints - left.totalPoints || left.name.localeCompare(right.name));
+
+    return {
+      designerRows,
+      totalTaskCount: designerRows.reduce((sum, row) => sum + row.totalTasks, 0),
+    };
   }, [
     childTaskIdsByParentId,
     clientsById,
     designerById,
     designerSalaryById,
-    monthlyEligibleOriginalTasks,
     negativeRemarkPointsByTaskId,
     pointsByTypeId,
+    selectedDesignerId,
+    selectedMonthKey,
+    tasks,
     tasksById,
   ]);
 
-  const totalTaskCount = monthlyEligibleOriginalTasks.length;
-
-  const totalPoints = useMemo(() => {
-    return designerRows.reduce((sum, row) => sum + Number(row.totalPoints || 0), 0);
-  }, [designerRows]);
-
-  const totalDesigners = designerRows.length;
-
-  const totalDistributedSalary = useMemo(() => {
-    return designerRows.reduce(
-      (sum, row) => sum + row.clients.reduce((clientSum, clientRow) => clientSum + Number(clientRow.salary || 0), 0),
-      0,
-    );
-  }, [designerRows]);
-
+  const designerRows = monthlyGroupedDesignerKpi.designerRows;
   return (
     <TooltipProvider>
       <SidebarProvider className="min-h-screen [--header-height:calc(theme(spacing.14))]">
@@ -374,7 +417,7 @@ export default function BrandKpiPage() {
                   </p>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2 xl:max-w-3xl">
+                <div className="grid gap-4 md:grid-cols-2 xl:max-w-5xl xl:grid-cols-3">
                   <div className="space-y-2">
                     <p className="text-sm font-medium text-foreground">Select Month</p>
                     <Select value={selectedMonth} onValueChange={setSelectedMonth}>
@@ -406,46 +449,27 @@ export default function BrandKpiPage() {
                       </SelectContent>
                     </Select>
                   </div>
+
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium text-foreground">Select Designer</p>
+                    <Select value={selectedDesignerId} onValueChange={setSelectedDesignerId}>
+                      <SelectTrigger className="h-11 w-full rounded-2xl bg-background">
+                        <SelectValue placeholder="Select designer" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Designers</SelectItem>
+                        {designerOptions.map((designer) => (
+                          <SelectItem key={designer.id} value={designer.id}>
+                            {designer.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
               </CardHeader>
 
               <CardContent className="space-y-6 p-4 lg:p-6">
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                  <Card className="rounded-[24px] border-border/80 shadow-sm">
-                    <CardContent className="space-y-2 p-5">
-                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">Designers</p>
-                      <p className="text-3xl font-semibold tracking-tight">{formatNumber(totalDesigners, 0)}</p>
-                      <p className="text-sm text-muted-foreground">
-                        Active in {MONTH_LABELS[Number(selectedMonth) - 1]} {selectedYear}
-                      </p>
-                    </CardContent>
-                  </Card>
-
-                  <Card className="rounded-[24px] border-border/80 shadow-sm">
-                    <CardContent className="space-y-2 p-5">
-                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">Total Tasks</p>
-                      <p className="text-3xl font-semibold tracking-tight">{formatNumber(totalTaskCount, 0)}</p>
-                      <p className="text-sm text-muted-foreground">Approved original tasks in selected month</p>
-                    </CardContent>
-                  </Card>
-
-                  <Card className="rounded-[24px] border-border/80 shadow-sm">
-                    <CardContent className="space-y-2 p-5">
-                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">Total Points</p>
-                      <p className="text-3xl font-semibold tracking-tight">{formatNumber(totalPoints)}</p>
-                      <p className="text-sm text-muted-foreground">Summed per designer before salary split</p>
-                    </CardContent>
-                  </Card>
-
-                  <Card className="rounded-[24px] border-border/80 shadow-sm">
-                    <CardContent className="space-y-2 p-5">
-                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">Distributed Salary</p>
-                      <p className="text-3xl font-semibold tracking-tight">{formatCurrency(totalDistributedSalary)}</p>
-                      <p className="text-sm text-muted-foreground">Rounded client-wise salary allocation</p>
-                    </CardContent>
-                  </Card>
-                </div>
-
                 <Card className="overflow-hidden rounded-[24px] border-border/80 shadow-sm">
                   <CardHeader className="border-b border-border/70 bg-muted/25">
                     <CardTitle className="text-lg">Designer-wise Client Salary Distribution</CardTitle>
@@ -454,7 +478,7 @@ export default function BrandKpiPage() {
                     {loading ? (
                       <p className="p-6 text-sm text-muted-foreground">Loading Brand KPI...</p>
                     ) : designerRows.length === 0 ? (
-                      <p className="p-6 text-sm text-muted-foreground">No designer-assigned approved tasks found for the selected month.</p>
+                      <p className="p-6 text-sm text-muted-foreground">No designer KPI task chains found for the selected month.</p>
                     ) : (
                       <Table>
                         <TableHeader>

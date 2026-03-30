@@ -300,6 +300,8 @@ export default function TaskStagesKanbanPage() {
   const [clientFilterQuery, setClientFilterQuery] = useState("");
   const [designerFilterOpen, setDesignerFilterOpen] = useState(false);
   const [designerFilterQuery, setDesignerFilterQuery] = useState("");
+  const [createdDateFrom, setCreatedDateFrom] = useState("");
+  const [createdDateTo, setCreatedDateTo] = useState("");
   const [targetDateFrom, setTargetDateFrom] = useState("");
   const [targetDateTo, setTargetDateTo] = useState("");
   const [showOriginal, setShowOriginal] = useState(true);
@@ -441,12 +443,16 @@ export default function TaskStagesKanbanPage() {
       if (taskType === "redo" && !showRedo) return false;
       if (isTaskCompleted(task) && !showCompleted) return false;
 
+      const taskCreatedDateKey = String(task.created_at || "").slice(0, 10);
+      if (createdDateFrom && (!taskCreatedDateKey || taskCreatedDateKey < createdDateFrom)) return false;
+      if (createdDateTo && (!taskCreatedDateKey || taskCreatedDateKey > createdDateTo)) return false;
+
       const taskTargetDateKey = String(task.target_date || "").slice(0, 10);
       if (targetDateFrom && (!taskTargetDateKey || taskTargetDateKey < targetDateFrom)) return false;
       if (targetDateTo && (!taskTargetDateKey || taskTargetDateKey > targetDateTo)) return false;
       return true;
     })
-  ), [isArtDirector, searchQuery, selectedClientIds, selectedDesignerIds, showCompleted, showOriginal, showRedo, showRevision, targetDateFrom, targetDateTo, tasks]);
+  ), [createdDateFrom, createdDateTo, isArtDirector, searchQuery, selectedClientIds, selectedDesignerIds, showCompleted, showOriginal, showRedo, showRevision, targetDateFrom, targetDateTo, tasks]);
 
   const columns = useMemo(
     () => buildColumns(filteredTasks, "", currentViewConfig.columns, viewMode),
@@ -469,6 +475,8 @@ export default function TaskStagesKanbanPage() {
     setSelectedDesignerIds([]);
     setClientFilterQuery("");
     setDesignerFilterQuery("");
+    setCreatedDateFrom("");
+    setCreatedDateTo("");
     setTargetDateFrom("");
     setTargetDateTo("");
     setShowOriginal(true);
@@ -612,7 +620,7 @@ export default function TaskStagesKanbanPage() {
           <SheetContent side="right" className="flex h-full flex-col overflow-hidden p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-[768px]">
             <SheetHeader className="border-b border-border px-6 py-6">
               <SheetTitle>Search & Filter</SheetTitle>
-              <SheetDescription>Refine the Kanban by task, client, designer, target date, and task type.</SheetDescription>
+              <SheetDescription>Refine the Kanban by task, client, designer, created date, target date, and task type.</SheetDescription>
             </SheetHeader>
             <div className="flex-1 overflow-y-auto px-6 py-6">
               <div className="space-y-5 rounded-2xl border border-border/80 bg-card p-4 shadow-sm">
@@ -731,6 +739,17 @@ export default function TaskStagesKanbanPage() {
                     </div>
                   </div>
                 ) : null}
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="kanban-created-date-from" className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Created Date From</Label>
+                    <Input id="kanban-created-date-from" type="date" value={createdDateFrom} onChange={(event) => setCreatedDateFrom(event.target.value)} className="h-11 rounded-xl bg-background shadow-sm" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="kanban-created-date-to" className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Created Date To</Label>
+                    <Input id="kanban-created-date-to" type="date" value={createdDateTo} onChange={(event) => setCreatedDateTo(event.target.value)} className="h-11 rounded-xl bg-background shadow-sm" />
+                  </div>
+                </div>
 
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">

@@ -158,9 +158,9 @@ export default function DesignerKpiPage() {
                       Team Performance
                     </Badge>
                     <p className="max-w-3xl text-sm text-muted-foreground">
-                      Monthly designer KPI is now calculated by the backend for tasks in Complete, Approved By Art Director,
-                      and Approved by Client stages using grouped original-task chains, slide multiplier, revision points, redo points, excellence, and
-                      negative remarks.
+                      Monthly designer KPI is calculated by the backend using tasks created in the selected month and in Complete,
+                      Approved By Art Director, and Approved by Client stages, with grouped original-task chains, slide multiplier,
+                      revision points, redo points, excellence, and negative remarks.
                     </p>
                   </div>
                   <div className="rounded-[24px] border border-border/70 bg-background/80 px-5 py-4">
