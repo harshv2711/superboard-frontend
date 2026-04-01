@@ -1445,9 +1445,6 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
           }
         }
 
-        if (drawerMode !== "edit" && currentUserId) {
-          payload.created_by = Number(currentUserId);
-        }
       }
 
       if (drawerMode === "edit" && currentUserRole === "designer" && !canDesignerEditTask(tasks.find((item) => String(item.id) === String(taskForm.id)))) {

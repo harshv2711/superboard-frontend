@@ -15,8 +15,9 @@ const BASE_WEEK_COLUMNS = [1, 2, 3, 4];
 
 function getPersonName(user) {
   if (!user) return "Unknown";
-  const fullName = `${user.first_name || ""} ${user.last_name || ""}`.trim();
-  return fullName || user.username || user.email || `Designer #${user.id}`;
+  const source = user.user && typeof user.user === "object" ? user.user : user;
+  const fullName = `${source.first_name || ""} ${source.last_name || ""}`.trim();
+  return fullName || source.email || user.email || `Designer #${source.id || user.id}`;
 }
 
 function formatPoint(value) {
@@ -160,7 +161,8 @@ export default function DesignerKpiPage() {
                     <p className="max-w-3xl text-sm text-muted-foreground">
                       Monthly designer KPI is calculated by the backend using tasks created in the selected month and in Complete,
                       Approved By Art Director, and Approved by Client stages, with grouped original-task chains, slide multiplier,
-                      revision points, redo points, excellence, and negative remarks.
+                      revision points, redo points, excellence, signed negative remark values, and Additional Points
+                      split into weeks using the Additional Points date.
                     </p>
                   </div>
                   <div className="rounded-[24px] border border-border/70 bg-background/80 px-5 py-4">

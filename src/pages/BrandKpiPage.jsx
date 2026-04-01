@@ -20,8 +20,19 @@ function getClientName(client) {
 function getDesignerName(user) {
   if (!user) return "Unassigned";
   const source = user.user && typeof user.user === "object" ? user.user : user;
-  const fullName = `${source.first_name || ""} ${source.last_name || ""}`.trim();
-  return fullName || source.email || `Designer #${source.id || user.id}`;
+  const nestedSource = source.user && typeof source.user === "object" ? source.user : null;
+  const fullName = `${source.first_name || nestedSource?.first_name || ""} ${source.last_name || nestedSource?.last_name || ""}`.trim();
+  return (
+    fullName
+    || source.email
+    || nestedSource?.email
+    || user.user_email
+    || user.email
+    || user.user_name
+    || source.user_name
+    || nestedSource?.user_name
+    || `Designer #${source.id || user.id}`
+  );
 }
 
 function formatNumber(value, maximumFractionDigits = 2) {

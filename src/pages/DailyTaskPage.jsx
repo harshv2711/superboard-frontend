@@ -150,6 +150,13 @@ function getClientName(client) {
   return client.name || client.client_name || client.title || `Client #${client.id}`;
 }
 
+function getDesignerDisplayName(user) {
+  if (!user) return "Unassigned";
+  const source = user.user && typeof user.user === "object" ? user.user : user;
+  const fullName = `${source.first_name || ""} ${source.last_name || ""}`.trim();
+  return fullName || source.email || user.email || `Designer #${source.id || user.id}`;
+}
+
 function getOwnerUserIds(client) {
   if (!Array.isArray(client?.owner_user_ids)) return [];
   return client.owner_user_ids.map((value) => String(value));
@@ -157,6 +164,13 @@ function getOwnerUserIds(client) {
 
 function getTaskName(task) {
   return task.task_name || task.name || task.title || `Task #${task.id}`;
+}
+
+function getTaskDesignerLabel(task, users = []) {
+  const designer = users.find((item) => String(item.id) === String(task?.designer));
+  if (designer) return getDesignerDisplayName(designer);
+  if (task?.designer_name) return task.designer_name;
+  return "Unassigned";
 }
 
 function getTaskPriority(task) {
@@ -641,7 +655,7 @@ function TaskCard({
                   </SelectContent>
                 </Select>
               ) : (
-                <p className="mt-2 font-medium text-foreground">{task.designer_name || "Unassigned"}</p>
+                <p className="mt-2 font-medium text-foreground">{getTaskDesignerLabel(task, designerOptions)}</p>
               )}
             </div>
           ) : null}
@@ -660,6 +674,10 @@ function TaskCard({
           <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Target Date</p>
             <p className="mt-2 font-medium text-foreground">{formatDate(task.target_date)}</p>
+          </div>
+          <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Created By</p>
+            <p className="mt-2 font-medium text-foreground">{task.created_by_name || "-"}</p>
           </div>
           <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Created At</p>
@@ -925,7 +943,7 @@ export default function DailyTaskPage() {
   const artDirectorDesignerOptions = useMemo(() => {
     return designerOptions.map((designer) => ({
       id: String(designer.id),
-      name: designer.email || designer.name || `Designer #${designer.id}`,
+      name: getDesignerDisplayName(designer),
     }));
   }, [designerOptions]);
 
