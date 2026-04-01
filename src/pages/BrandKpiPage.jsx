@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { superboardApi } from "@/api/superboardApi";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
@@ -18,8 +19,9 @@ function getClientName(client) {
 
 function getDesignerName(user) {
   if (!user) return "Unassigned";
-  const fullName = `${user.first_name || ""} ${user.last_name || ""}`.trim();
-  return fullName || user.email || `Designer #${user.id}`;
+  const source = user.user && typeof user.user === "object" ? user.user : user;
+  const fullName = `${source.first_name || ""} ${source.last_name || ""}`.trim();
+  return fullName || source.email || `Designer #${source.id || user.id}`;
 }
 
 function formatNumber(value, maximumFractionDigits = 2) {
@@ -38,6 +40,36 @@ function formatCurrency(value) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(Number.isFinite(numeric) ? numeric : 0);
+}
+
+function getProfitLossTone(value) {
+  if (value > 0) {
+    return {
+      containerClass: "border-emerald-200/80 bg-emerald-50/80",
+      labelClass: "text-emerald-700",
+      valueClass: "text-emerald-950",
+      badgeClass: "border-emerald-300/80 bg-emerald-100 text-emerald-800",
+      badgeLabel: "Profit",
+    };
+  }
+
+  if (value < 0) {
+    return {
+      containerClass: "border-rose-200/80 bg-rose-50/80",
+      labelClass: "text-rose-700",
+      valueClass: "text-rose-950",
+      badgeClass: "border-rose-300/80 bg-rose-100 text-rose-800",
+      badgeLabel: "Loss",
+    };
+  }
+
+  return {
+    containerClass: "border-slate-200/80 bg-slate-50/80",
+    labelClass: "text-slate-600",
+    valueClass: "text-slate-950",
+    badgeClass: "border-slate-300/80 bg-slate-100 text-slate-700",
+    badgeLabel: "Break-even",
+  };
 }
 
 function getMonthKeyFromDate(value) {
@@ -160,13 +192,15 @@ export default function BrandKpiPage() {
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth() + 1;
   const [clients, setClients] = useState([]);
+  const [clientMonthlyAmounts, setClientMonthlyAmounts] = useState([]);
   const [designers, setDesigners] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [typeOfWork, setTypeOfWork] = useState([]);
   const [negativeRemarkLinks, setNegativeRemarkLinks] = useState([]);
   const [selectedYear, setSelectedYear] = useState(String(currentYear));
   const [selectedMonth, setSelectedMonth] = useState(String(currentMonth));
-  const [selectedDesignerId, setSelectedDesignerId] = useState("all");
+  const [selectedClientId, setSelectedClientId] = useState("all");
+  const [salaryBreakdownOpen, setSalaryBreakdownOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -178,8 +212,16 @@ export default function BrandKpiPage() {
       setError("");
 
       try {
-        const [loadedClients, loadedDesigners, loadedTasks, loadedTypeOfWork, loadedNegativeRemarkLinks] = await Promise.all([
+        const [
+          loadedClients,
+          loadedClientMonthlyAmounts,
+          loadedDesigners,
+          loadedTasks,
+          loadedTypeOfWork,
+          loadedNegativeRemarkLinks,
+        ] = await Promise.all([
           superboardApi.clients.listAll({ page_size: 300 }),
+          superboardApi.clientMonthlyAmounts.listAll({ page_size: 3000 }),
           superboardApi.designers.listAll({ page_size: 500 }),
           superboardApi.tasks.listAll({ page_size: 3000 }),
           superboardApi.typeOfWork.listAll({ page_size: 500 }),
@@ -189,6 +231,7 @@ export default function BrandKpiPage() {
         if (cancelled) return;
 
         setClients(Array.isArray(loadedClients) ? loadedClients : []);
+        setClientMonthlyAmounts(Array.isArray(loadedClientMonthlyAmounts) ? loadedClientMonthlyAmounts : []);
         setDesigners(Array.isArray(loadedDesigners) ? loadedDesigners : []);
         setTasks(Array.isArray(loadedTasks) ? loadedTasks : []);
         setTypeOfWork(Array.isArray(loadedTypeOfWork) ? loadedTypeOfWork : []);
@@ -275,15 +318,14 @@ export default function BrandKpiPage() {
     }, {});
   }, [designers]);
 
-  const designerOptions = useMemo(() => {
-    return designers
-      .filter((designer) => String(designer.role || "") === "designer")
-      .map((designer) => ({
-        id: String(designer.id),
-        name: getDesignerName(designer),
+  const clientOptions = useMemo(() => {
+    return clients
+      .map((client) => ({
+        id: String(client.id),
+        name: getClientName(client),
       }))
       .sort((left, right) => left.name.localeCompare(right.name));
-  }, [designers]);
+  }, [clients]);
 
   const designerSalaryById = useMemo(() => {
     return designers.reduce((accumulator, designer) => {
@@ -333,7 +375,6 @@ export default function BrandKpiPage() {
     const pointsByDesigner = originalTaskGroups.reduce((accumulator, group) => {
       const designerId = String(group.originalTask?.designer || "");
       if (!designerId) return accumulator;
-      if (selectedDesignerId !== "all" && designerId !== selectedDesignerId) return accumulator;
 
       const clientId = String(group.originalTask?.client || "");
       if (!accumulator[designerId]) {
@@ -364,15 +405,23 @@ export default function BrandKpiPage() {
           }))
           .sort((left, right) => right.points - left.points || left.clientName.localeCompare(right.clientName));
 
+        const distributedClientRows = distributeRoundedSalaries(clientRows, salary);
+        const visibleClientRows = selectedClientId === "all"
+          ? distributedClientRows
+          : distributedClientRows.filter((clientRow) => clientRow.clientId === selectedClientId);
+
+        if (!visibleClientRows.length) return null;
+
         return {
           id: designerId,
           name: getDesignerName(designerById[designerId]),
           salary,
           totalPoints,
           totalTasks: Number(designerData.totalTasks || 0),
-          clients: distributeRoundedSalaries(clientRows, salary),
+          clients: visibleClientRows,
         };
       })
+      .filter(Boolean)
       .sort((left, right) => right.totalPoints - left.totalPoints || left.name.localeCompare(right.name));
 
     return {
@@ -386,13 +435,33 @@ export default function BrandKpiPage() {
     designerSalaryById,
     negativeRemarkPointsByTaskId,
     pointsByTypeId,
-    selectedDesignerId,
+    selectedClientId,
     selectedMonthKey,
     tasks,
     tasksById,
   ]);
 
   const designerRows = monthlyGroupedDesignerKpi.designerRows;
+  const totalDistributedSalary = useMemo(
+    () => designerRows.reduce(
+      (sum, row) => sum + row.clients.reduce((clientSum, clientRow) => clientSum + Number(clientRow.salary || 0), 0),
+      0,
+    ),
+    [designerRows],
+  );
+  const totalRevenue = useMemo(
+    () => clientMonthlyAmounts.reduce((sum, item) => {
+      const clientId = String(item?.client || "");
+      const monthKey = getMonthKeyFromDate(item?.date);
+      if (monthKey !== selectedMonthKey) return sum;
+      if (selectedClientId !== "all" && clientId !== selectedClientId) return sum;
+      return sum + Number(item?.amt || 0);
+    }, 0),
+    [clientMonthlyAmounts, selectedClientId, selectedMonthKey],
+  );
+  const totalProfitOrLoss = totalRevenue - totalDistributedSalary;
+  const profitLossTone = getProfitLossTone(totalProfitOrLoss);
+
   return (
     <TooltipProvider>
       <SidebarProvider className="min-h-screen [--header-height:calc(theme(spacing.14))]">
@@ -451,16 +520,16 @@ export default function BrandKpiPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <p className="text-sm font-medium text-foreground">Select Designer</p>
-                    <Select value={selectedDesignerId} onValueChange={setSelectedDesignerId}>
+                    <p className="text-sm font-medium text-foreground">Select Client</p>
+                    <Select value={selectedClientId} onValueChange={setSelectedClientId}>
                       <SelectTrigger className="h-11 w-full rounded-2xl bg-background">
-                        <SelectValue placeholder="Select designer" />
+                        <SelectValue placeholder="Select client" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="all">All Designers</SelectItem>
-                        {designerOptions.map((designer) => (
-                          <SelectItem key={designer.id} value={designer.id}>
-                            {designer.name}
+                        <SelectItem value="all">All Clients</SelectItem>
+                        {clientOptions.map((client) => (
+                          <SelectItem key={client.id} value={client.id}>
+                            {client.name}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -470,11 +539,83 @@ export default function BrandKpiPage() {
               </CardHeader>
 
               <CardContent className="space-y-6 p-4 lg:p-6">
+                <Card className="overflow-hidden rounded-[24px] border-border/80 bg-[linear-gradient(135deg,_rgba(248,250,252,0.95),_rgba(255,255,255,1))] shadow-sm">
+                  <CardContent className="space-y-5 p-5 lg:p-6">
+                    <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="space-y-1">
+                        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+                          Financial Snapshot
+                        </p>
+                        <h3 className="text-lg font-semibold text-foreground">
+                          {selectedClientId !== "all"
+                            ? `${getClientName(clientsById[selectedClientId])} overview`
+                            : "All clients overview"}
+                        </h3>
+                      </div>
+                      <p className="max-w-xl text-sm text-muted-foreground">
+                        Based on the currently selected month, year, and client filter.
+                      </p>
+                    </div>
+
+                    <div className="grid gap-4 xl:grid-cols-3">
+                      <div className="rounded-[22px] border border-slate-200/80 bg-white/90 p-5 shadow-sm">
+                        <p className="text-sm font-medium text-slate-500">
+                          Total Cost
+                          {selectedClientId !== "all" ? ` for ${getClientName(clientsById[selectedClientId])}` : ""}
+                        </p>
+                        <p className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">
+                          {formatCurrency(totalDistributedSalary)}
+                        </p>
+                        <p className="mt-2 text-xs text-slate-500">Designer salary distributed against completed work share.</p>
+                      </div>
+
+                      <div className="rounded-[22px] border border-sky-200/80 bg-sky-50/80 p-5 shadow-sm">
+                        <p className="text-sm font-medium text-sky-700">Total Revenue</p>
+                        <p className="mt-3 text-4xl font-semibold tracking-tight text-sky-950">
+                          {formatCurrency(totalRevenue)}
+                        </p>
+                        <p className="mt-2 text-xs text-sky-700/80">Pulled from client monthly amount records for this reporting month.</p>
+                      </div>
+
+                      <div className={`rounded-[22px] border p-5 shadow-sm ${profitLossTone.containerClass}`}>
+                        <div className="flex items-center justify-between gap-3">
+                          <p className={`text-sm font-medium ${profitLossTone.labelClass}`}>Profit / Loss</p>
+                          <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] ${profitLossTone.badgeClass}`}>
+                            {profitLossTone.badgeLabel}
+                          </span>
+                        </div>
+                        <p className={`mt-3 text-4xl font-semibold tracking-tight ${profitLossTone.valueClass}`}>
+                          {formatCurrency(totalProfitOrLoss)}
+                        </p>
+                        <p className={`mt-2 text-xs ${profitLossTone.labelClass}`}>Calculated as total revenue minus total cost.</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
                 <Card className="overflow-hidden rounded-[24px] border-border/80 shadow-sm">
-                  <CardHeader className="border-b border-border/70 bg-muted/25">
-                    <CardTitle className="text-lg">Designer-wise Client Salary Distribution</CardTitle>
+                  <CardHeader className="border-b border-border/70 bg-muted/25 p-0">
+                    <button
+                      type="button"
+                      className="flex w-full items-center justify-between gap-4 px-6 py-5 text-left transition hover:bg-muted/40"
+                      onClick={() => setSalaryBreakdownOpen((current) => !current)}
+                      aria-expanded={salaryBreakdownOpen}
+                    >
+                      <div className="space-y-1">
+                        <CardTitle className="text-lg">Desginer-wise cost breakdown</CardTitle>
+                        <p className="text-sm text-muted-foreground">
+                          Click to view the salary breakdown for each designer.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="rounded-full border border-border/70 bg-background px-3 py-1 text-xs font-medium text-muted-foreground">
+                          {salaryBreakdownOpen ? "Hide breakdown" : "View breakdown"}
+                        </span>
+                        <ChevronDown className={`h-5 w-5 shrink-0 text-muted-foreground transition ${salaryBreakdownOpen ? "rotate-180" : ""}`} />
+                      </div>
+                    </button>
                   </CardHeader>
-                  <CardContent className="p-0">
+                  <CardContent className={`${salaryBreakdownOpen ? "block" : "hidden"} p-0`}>
                     {loading ? (
                       <p className="p-6 text-sm text-muted-foreground">Loading Brand KPI...</p>
                     ) : designerRows.length === 0 ? (
@@ -485,8 +626,11 @@ export default function BrandKpiPage() {
                           <TableRow className="bg-muted/20 hover:bg-muted/20">
                             <TableHead className="px-4 py-3">Designer Name</TableHead>
                             <TableHead className="px-4 py-3">Total Points</TableHead>
-                            <TableHead className="px-4 py-3">Client</TableHead>
-                            <TableHead className="px-4 py-3">Client Points</TableHead>
+                            <TableHead className="px-4 py-3">
+                              {selectedClientId === "all"
+                                ? "Client Points"
+                                : `Client Points / ${getClientName(clientsById[selectedClientId])}`}
+                            </TableHead>
                             <TableHead className="px-4 py-3">Contribution %</TableHead>
                             <TableHead className="px-4 py-3">Monthly Salary</TableHead>
                             <TableHead className="px-4 py-3">Distributed Salary</TableHead>
@@ -501,7 +645,6 @@ export default function BrandKpiPage() {
                                   {index === 0 ? <div className="mt-1 text-xs text-muted-foreground">{row.clients.length} client(s)</div> : null}
                                 </TableCell>
                                 <TableCell className="px-4 py-4">{formatNumber(row.totalPoints)}</TableCell>
-                                <TableCell className="px-4 py-4">{clientRow.clientName}</TableCell>
                                 <TableCell className="px-4 py-4">{formatNumber(clientRow.points)}</TableCell>
                                 <TableCell className="px-4 py-4">{formatNumber(clientRow.percentage)}%</TableCell>
                                 <TableCell className="px-4 py-4">{formatCurrency(row.salary)}</TableCell>

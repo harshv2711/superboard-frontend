@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { superboardApi } from "./api/superboardApi.js";
 import ClientsPage from "./pages/ClientsPage.jsx";
+import ClientMonthlyAmountsPage from "./pages/ClientMonthlyAmountsPage.jsx";
 import ClientsWorkPage from "./pages/ClientsWorkPage.jsx";
 import DailyTaskPage from "./pages/DailyTaskPage.jsx";
 import DeliverablesTrackerPage from "./pages/DeliverablesTrackerPage.jsx";
@@ -101,6 +102,14 @@ export default function App() {
         }
       />
       <Route
+        path="/account-planing/client-monthly-amounts"
+        element={
+          <RequireRole allowedRoles={["superuser"]}>
+            <ClientMonthlyAmountsPage />
+          </RequireRole>
+        }
+      />
+      <Route
         path="/account-planing/daily-task"
         element={
           <RequireAuth>
@@ -143,6 +152,7 @@ export default function App() {
       <Route path="/account-planning" element={<Navigate to="/account-planing" replace />} />
       <Route path="/account-planning/daily-task" element={<Navigate to="/account-planing/daily-task" replace />} />
       <Route path="/account-planning/clients" element={<Navigate to="/account-planing/clients" replace />} />
+      <Route path="/account-planning/client-monthly-amounts" element={<Navigate to="/account-planing/client-monthly-amounts" replace />} />
       <Route path="/account-planning/clients-work" element={<Navigate to="/account-planing/clients-work" replace />} />
       <Route path="/account-planning/type-of-work" element={<Navigate to="/account-planing/type-of-work" replace />} />
       <Route path="/account-planning/negative-remarks" element={<Navigate to="/account-planing/negative-remarks" replace />} />
@@ -255,7 +265,7 @@ export default function App() {
       <Route
         path="/reports/post-kpi"
         element={
-          <RequireRole allowedRoles={["superuser", "account_planner", "art_director"]}>
+          <RequireRole allowedRoles={["superuser", "account_planner", "art_director", "designer"]}>
             <PostKpiPage />
           </RequireRole>
         }

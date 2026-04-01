@@ -102,6 +102,8 @@ export default function PostKpiPage() {
   const [designerFilterQuery, setDesignerFilterQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const currentUserId = String(currentUser?.id || currentUser?.user_id || "");
+  const isDesignerUser = currentUser?.role === "designer";
 
   const currentYear = Number(selectedYear);
   const currentMonthIndex = Number(selectedMonth);
@@ -115,10 +117,10 @@ export default function PostKpiPage() {
       setError("");
 
       try {
-        const [me, loadedClients, loadedUsers, loadedTasks] = await Promise.all([
-          superboardApi.auth.me(),
+        const me = await superboardApi.auth.me();
+        const [loadedClients, loadedUsers, loadedTasks] = await Promise.all([
           superboardApi.clients.listAll({ page_size: 300 }),
-          superboardApi.designers.listAll({ page_size: 300 }),
+          me?.role === "designer" ? Promise.resolve([me]) : superboardApi.designers.listAll({ page_size: 300 }),
           superboardApi.tasks.listAll({ page_size: 3000 }),
         ]);
 
@@ -157,7 +159,6 @@ export default function PostKpiPage() {
 
   const allowedClientIds = useMemo(() => {
     const role = currentUser?.role || "";
-    const currentUserId = String(currentUser?.id || currentUser?.user_id || "");
 
     if (role === "superuser" || role === "art_director") {
       return null;
@@ -171,8 +172,17 @@ export default function PostKpiPage() {
       );
     }
 
+    if (role === "designer") {
+      return new Set(
+        tasks
+          .filter((task) => String(task?.designer || "") === currentUserId)
+          .map((task) => String(task?.client || ""))
+          .filter(Boolean),
+      );
+    }
+
     return new Set();
-  }, [clients, currentUser]);
+  }, [clients, currentUser, currentUserId, tasks]);
 
   const allowedClients = useMemo(() => {
     if (!allowedClientIds) return clients;
@@ -196,8 +206,9 @@ export default function PostKpiPage() {
   const designerOptions = useMemo(() => (
     users
       .filter((user) => String(user.role || "") === "designer")
+      .filter((user) => !isDesignerUser || String(user.id || user.user_id || "") === currentUserId)
       .map((user) => ({ id: String(user.id), name: user.email || `Designer #${user.id}` }))
-  ), [users]);
+  ), [currentUserId, isDesignerUser, users]);
   const selectedDesignerValues = useMemo(
     () => designerOptions.filter((designer) => selectedDesignerIds.includes(designer.id)),
     [designerOptions, selectedDesignerIds],
@@ -221,6 +232,7 @@ export default function PostKpiPage() {
   const visibleTasks = useMemo(() => {
     const rows = tasks.filter((task) => {
       if (allowedClientIds && !allowedClientIds.has(String(task?.client || ""))) return false;
+      if (isDesignerUser && String(task?.designer || "") !== currentUserId) return false;
       if (!isTaskInMonth(task, currentYear, currentMonthIndex)) return false;
       if (selectedClientIds.length > 0 && !selectedClientIds.includes(String(task?.client || ""))) return false;
       if (selectedDesignerIds.length > 0 && !selectedDesignerIds.includes(String(task?.designer || ""))) return false;
@@ -232,7 +244,7 @@ export default function PostKpiPage() {
       const rightTime = new Date(right?.target_date || right?.created_at || 0).getTime();
       return rightTime - leftTime;
     });
-  }, [allowedClientIds, currentMonthIndex, currentYear, selectedClientIds, selectedDesignerIds, tasks]);
+  }, [allowedClientIds, currentMonthIndex, currentUserId, currentYear, isDesignerUser, selectedClientIds, selectedDesignerIds, tasks]);
 
   const clientsById = useMemo(() => {
     return clients.reduce((accumulator, client) => {

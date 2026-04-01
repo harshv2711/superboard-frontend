@@ -11,7 +11,16 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
-import { ClipboardListIcon, FolderKanbanIcon, HomeIcon, PaletteIcon } from "lucide-react"
+import {
+  BarChart3Icon,
+  Building2Icon,
+  ClipboardCheckIcon,
+  FolderKanbanIcon,
+  HomeIcon,
+  KanbanSquareIcon,
+  PaletteIcon,
+  SparklesIcon,
+} from "lucide-react"
 import { useEffect, useMemo, useState } from "react";
 
 const data = {
@@ -43,6 +52,10 @@ const data = {
           url: "/account-planing/clients",
         },
         {
+          title: "Client Monthly Revenue",
+          url: "/account-planing/client-monthly-amounts",
+        },
+        {
           title: "Type Of Work",
           url: "/account-planing/type-of-work",
         },
@@ -58,28 +71,28 @@ const data = {
       name: "Deliverables Tracker",
       url: "/reports/deliverables-tracker",
       icon: (
-        <ClipboardListIcon />
+        <ClipboardCheckIcon />
       ),
     },
     {
       name: "Designer KPI",
       url: "/reports/designer-kpi",
       icon: (
-        <ClipboardListIcon />
+        <BarChart3Icon />
       ),
     },
     {
       name: "Brand KPI",
       url: "/reports/brand-kpi",
       icon: (
-        <ClipboardListIcon />
+        <Building2Icon />
       ),
     },
     {
       name: "Post KPI",
       url: "/reports/post-kpi",
       icon: (
-        <ClipboardListIcon />
+        <SparklesIcon />
       ),
     },
   ],
@@ -94,6 +107,7 @@ function getNavMainForRole(role) {
         ...item,
         items: (item.items || []).filter(
           (subItem) =>
+            subItem.url !== "/account-planing/client-monthly-amounts" &&
             subItem.url !== "/account-planing/type-of-work" &&
             subItem.url !== "/account-planing/negative-remarks",
         ),
@@ -170,7 +184,9 @@ export function AppSidebar({
   });
   const navMainItems = useMemo(() => getNavMainForRole(user.role), [user.role]);
   const documentItems = useMemo(() => {
-    if (user.role === "designer") return [];
+    if (user.role === "designer") {
+      return data.documents.filter((item) => item.url === "/reports/post-kpi");
+    }
     if (user.role === "account_planner") {
       return data.documents.filter(
         (item) =>
@@ -201,7 +217,7 @@ export function AppSidebar({
       {
         name: "Task Kanban View",
         url: targetUrl,
-        icon: <ClipboardListIcon />,
+        icon: <KanbanSquareIcon />,
       },
     ];
   }, [user.role]);
