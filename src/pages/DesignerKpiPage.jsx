@@ -35,6 +35,7 @@ export default function DesignerKpiPage() {
   const [currentUser, setCurrentUser] = useState(null);
   const [users, setUsers] = useState([]);
   const [rows, setRows] = useState([]);
+  const [availableYears, setAvailableYears] = useState([currentYear]);
   const [selectedYear, setSelectedYear] = useState(String(currentYear));
   const [selectedMonth, setSelectedMonth] = useState(String(new Date().getMonth() + 1));
   const [error, setError] = useState("");
@@ -53,10 +54,15 @@ export default function DesignerKpiPage() {
         const loadedUsers = me?.role === "designer"
           ? [me]
           : await superboardApi.designers.listAll({ page_size: 500 });
+        const yearsPayload = await superboardApi.tasks.designerKpiYears();
+        const years = Array.isArray(yearsPayload?.years)
+          ? yearsPayload.years.filter((year) => Number.isInteger(Number(year))).map(Number)
+          : [];
 
         if (cancelled) return;
         setCurrentUser(me || null);
         setUsers(Array.isArray(loadedUsers) ? loadedUsers : []);
+        setAvailableYears(years.length > 0 ? years : [currentYear]);
       } catch (loadError) {
         if (cancelled) return;
         setError(loadError.message || "Failed to load designer list.");
@@ -76,10 +82,14 @@ export default function DesignerKpiPage() {
     return visibleUsers.slice().sort((left, right) => getPersonName(left).localeCompare(getPersonName(right)));
   }, [currentUser?.id, currentUser?.role, users]);
 
-  const availableYears = useMemo(
-    () => Array.from({ length: 5 }, (_, index) => currentYear - 2 + index).sort((left, right) => right - left),
-    [currentYear],
-  );
+  useEffect(() => {
+    if (availableYears.length === 0) return;
+
+    const normalizedSelectedYear = Number(selectedYear);
+    if (!availableYears.includes(normalizedSelectedYear)) {
+      setSelectedYear(String(availableYears[0]));
+    }
+  }, [availableYears, selectedYear]);
 
   const selectedMonthValue = `${selectedYear}-${String(selectedMonth).padStart(2, "0")}`;
 

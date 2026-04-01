@@ -329,6 +329,10 @@ export const superboardApi = {
         ...(designerId ? { designer_id: designerId } : {}),
         ...(month ? { month } : {}),
       }).toString()}`),
+    designerKpiYears: ({ designerId } = {}) =>
+      httpRequest(`/api/tasks/designer-kpi-years/?${new URLSearchParams({
+        ...(designerId ? { designer_id: designerId } : {}),
+      }).toString()}`),
     originals: (query = {}) =>
       httpRequest(`/api/tasks/originals/?${new URLSearchParams(query).toString()}`),
     originalsAll: (query = {}) => listAllPages("/api/tasks/originals/", query),
