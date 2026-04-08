@@ -86,7 +86,7 @@ function Toolbar() {
   )
 }
 
-export function Plugins() {
+export function Plugins({ contentClassName = "" }) {
   const [floatingAnchorElem, setFloatingAnchorElem] =
     useState(null)
 
@@ -103,7 +103,7 @@ export function Plugins() {
       <div className="relative">
         <RichTextPlugin
           contentEditable={
-            <div className="bg-background">
+            <div className={`bg-background ${contentClassName}`.trim()}>
               <div className="" ref={onRef}>
                 <ContentEditable placeholder={"Start typing ..."} />
               </div>

@@ -63,6 +63,14 @@ const data = {
           title: "Negative Remarks",
           url: "/account-planing/negative-remarks",
         },
+        {
+          title: "User Management",
+          url: "/account-planing/manage-users",
+        },
+        {
+          title: "Manage Groups",
+          url: "/account-planing/manage-groups",
+        },
       ],
     },
   ],
@@ -109,7 +117,9 @@ function getNavMainForRole(role) {
           (subItem) =>
             subItem.url !== "/account-planing/client-monthly-amounts" &&
             subItem.url !== "/account-planing/type-of-work" &&
-            subItem.url !== "/account-planing/negative-remarks",
+            subItem.url !== "/account-planing/negative-remarks" &&
+            subItem.url !== "/account-planing/manage-users" &&
+            subItem.url !== "/account-planing/manage-groups",
         ),
       }));
   }
@@ -137,13 +147,17 @@ function getNavMainForRole(role) {
             title: "Type Of Work",
             url: "/art-director/type-of-work",
           },
-          {
-            title: "Negative Remarks",
-            url: "/art-director/negative-remarks",
-          },
-        ],
-      },
-    ].filter(Boolean);
+        {
+          title: "Negative Remarks",
+          url: "/art-director/negative-remarks",
+        },
+        {
+          title: "Manage Groups",
+          url: "/account-planing/manage-groups",
+        },
+      ],
+    },
+  ].filter(Boolean);
   }
   if (role === "designer") {
     return [

@@ -10,6 +10,8 @@ import DesignerKpiPage from "./pages/DesignerKpiPage.jsx";
 import BrandKpiPage from "./pages/BrandKpiPage.jsx";
 import PostKpiPage from "./pages/PostKpiPage.jsx";
 import LoginPage from "./pages/LoginPage.jsx";
+import ManageUsersPage from "./pages/ManageUsersPage.jsx";
+import ManageGroupsPage from "./pages/ManageGroupsPage.jsx";
 import NegativeRemarksPage from "./pages/NegativeRemarksPage.jsx";
 import RegisterPage from "./pages/RegisterPage.jsx";
 import TaskStagesKanbanPage from "./pages/TaskStagesKanbanPage.jsx";
@@ -149,6 +151,22 @@ export default function App() {
           </RequireAuth>
         }
       />
+      <Route
+        path="/account-planing/manage-users"
+        element={
+          <RequireRole allowedRoles={["superuser"]}>
+            <ManageUsersPage />
+          </RequireRole>
+        }
+      />
+              <Route
+                path="/account-planing/manage-groups"
+                element={
+                  <RequireRole allowedRoles={["superuser", "art_director"]}>
+                    <ManageGroupsPage />
+                  </RequireRole>
+                }
+              />
       <Route path="/account-planning" element={<Navigate to="/account-planing" replace />} />
       <Route path="/account-planning/daily-task" element={<Navigate to="/account-planing/daily-task" replace />} />
       <Route path="/account-planning/clients" element={<Navigate to="/account-planing/clients" replace />} />
@@ -157,6 +175,8 @@ export default function App() {
       <Route path="/account-planning/type-of-work" element={<Navigate to="/account-planing/type-of-work" replace />} />
       <Route path="/account-planning/negative-remarks" element={<Navigate to="/account-planing/negative-remarks" replace />} />
       <Route path="/account-planning/kanban" element={<Navigate to="/account-planing/kanban" replace />} />
+      <Route path="/account-planning/manage-users" element={<Navigate to="/account-planing/manage-users" replace />} />
+      <Route path="/account-planning/manage-groups" element={<Navigate to="/account-planing/manage-groups" replace />} />
       <Route
         path="/art-director"
         element={

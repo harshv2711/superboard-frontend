@@ -488,6 +488,24 @@ function TaskHistoryDrawer({ open, onOpenChange, task, items, canDeleteItem, del
   );
 }
 
+function TaskContentDrawer({ open, onOpenChange, title, label, content }) {
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="left" className="flex h-full !w-full flex-col overflow-hidden p-0 sm:!w-[40vw] sm:!max-w-[760px]">
+        <SheetHeader className="border-b border-border px-6 py-6">
+          <SheetTitle>{label}</SheetTitle>
+          <SheetDescription>{title ? `Full content for ${title}` : "View full task content."}</SheetDescription>
+        </SheetHeader>
+        <div className="flex-1 overflow-y-auto px-6 py-6">
+          <div className="rounded-[24px] border border-border/80 bg-card p-5 shadow-sm">
+            <p className="whitespace-pre-wrap break-words text-sm leading-7 text-foreground">{content || "-"}</p>
+          </div>
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
 function TaskCard({
   task,
   attachments,
@@ -509,6 +527,7 @@ function TaskCard({
   onAddRevision,
   onAddRedo,
   onOpenHistory,
+  onOpenContent,
 }) {
   const completed = isTaskCompleted(task);
   const canShowMarkComplete = isDesigner && canDesignerModifyCompletion(task);
@@ -620,12 +639,34 @@ function TaskCard({
         <div className="grid gap-3 text-sm">
           <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Instructions/ Brief by Brand</p>
-            <p className="mt-2 font-medium text-foreground">{task.instructions || "No instructions added."}</p>
+            <button
+              type="button"
+              className="mt-2 block w-full text-left"
+              onClick={() => onOpenContent?.(task, "Instructions/ Brief by Brand", task.instructions || "No instructions added.")}
+            >
+              <p
+                className="overflow-hidden font-medium text-foreground"
+                style={{ display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical" }}
+              >
+                {task.instructions || "No instructions added."}
+              </p>
+            </button>
           </div>
           {!isAccountPlanner ? (
             <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
               <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Instructions By Art Director</p>
-              <p className="mt-2 font-medium text-foreground">{task.InstructionsByArtDirector || "-"}</p>
+              <button
+                type="button"
+                className="mt-2 block w-full text-left"
+                onClick={() => onOpenContent?.(task, "Instructions By Art Director", task.InstructionsByArtDirector || "-")}
+              >
+                <p
+                  className="overflow-hidden font-medium text-foreground"
+                  style={{ display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical" }}
+                >
+                  {task.InstructionsByArtDirector || "-"}
+                </p>
+              </button>
             </div>
           ) : null}
           {!isAccountPlanner && !isDesigner && task.excellence_reason ? (
@@ -793,6 +834,7 @@ export default function DailyTaskPage() {
   const [dateTo, setDateTo] = useState(currentYearEndKey);
   const [targetDateFrom, setTargetDateFrom] = useState("");
   const [targetDateTo, setTargetDateTo] = useState("");
+  const [selectedPriorities, setSelectedPriorities] = useState([]);
   const [showOriginal, setShowOriginal] = useState(true);
   const [showRevision, setShowRevision] = useState(true);
   const [showRedo, setShowRedo] = useState(true);
@@ -800,6 +842,8 @@ export default function DailyTaskPage() {
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyTaskId, setHistoryTaskId] = useState(null);
+  const [contentPreviewOpen, setContentPreviewOpen] = useState(false);
+  const [contentPreview, setContentPreview] = useState({ title: "", label: "", content: "" });
 
   const currentUserId = String(currentUser?.id || currentUser?.user_id || "");
   const currentUserRole = currentUser?.role || "";
@@ -1005,6 +1049,9 @@ export default function DailyTaskPage() {
         if ((isArtDirector || isSuperuser) && selectedDesignerIds.length > 0) {
           if (!selectedDesignerIds.includes(String(task.designer || ""))) return false;
         }
+        if (selectedPriorities.length > 0) {
+          if (!selectedPriorities.includes(String(task.priority || "").toLowerCase())) return false;
+        }
 
         const taskType = getTaskType(task);
         if (taskType === "original" && !showOriginal) return false;
@@ -1042,6 +1089,7 @@ export default function DailyTaskPage() {
     isDesigner,
     isSuperuser,
     selectedDesignerIds,
+    selectedPriorities,
     selectedClientIds,
     searchQuery,
     targetDateFrom,
@@ -1766,6 +1814,7 @@ export default function DailyTaskPage() {
     setSearchQuery("");
     setSelectedClientIds([]);
     setSelectedDesignerIds([]);
+    setSelectedPriorities([]);
     setClientFilterQuery("");
     setDesignerFilterQuery("");
     setDateFrom(currentYearStartKey);
@@ -1781,6 +1830,15 @@ export default function DailyTaskPage() {
   function openTaskHistory(task) {
     setHistoryTaskId(task?.id || null);
     setHistoryOpen(true);
+  }
+
+  function openTaskContent(task, label, content) {
+    setContentPreview({
+      title: getTaskName(task),
+      label,
+      content,
+    });
+    setContentPreviewOpen(true);
   }
 
   return (
@@ -1855,6 +1913,7 @@ export default function DailyTaskPage() {
                       onAddRevision={openCreateRevisionTask}
                       onAddRedo={openCreateRedoTask}
                       onOpenHistory={openTaskHistory}
+                      onOpenContent={openTaskContent}
                     />
                   ))}
                 </div>
@@ -1872,6 +1931,17 @@ export default function DailyTaskPage() {
               canDeleteItem={canEditTask}
               deletingTaskId={deletingHistoryTaskId}
               onDeleteItem={handleDeleteHistoryTask}
+            />
+
+            <TaskContentDrawer
+              open={contentPreviewOpen}
+              onOpenChange={(open) => {
+                setContentPreviewOpen(open);
+                if (!open) setContentPreview({ title: "", label: "", content: "" });
+              }}
+              title={contentPreview.title}
+              label={contentPreview.label}
+              content={contentPreview.content}
             />
 
             <Sheet open={filterDrawerOpen} onOpenChange={setFilterDrawerOpen}>
@@ -2127,6 +2197,43 @@ export default function DailyTaskPage() {
                     </div>
 
                     <div className="space-y-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Filter by Priority</p>
+                      <label className="flex items-center gap-3 rounded-xl border border-border/70 bg-background px-3 py-3">
+                        <Checkbox
+                          checked={selectedPriorities.includes("high")}
+                          onCheckedChange={(checked) =>
+                            setSelectedPriorities((prev) =>
+                              checked ? Array.from(new Set([...prev, "high"])) : prev.filter((value) => value !== "high"),
+                            )
+                          }
+                        />
+                        <span className="text-sm text-foreground">High priority</span>
+                      </label>
+                      <label className="flex items-center gap-3 rounded-xl border border-border/70 bg-background px-3 py-3">
+                        <Checkbox
+                          checked={selectedPriorities.includes("medium")}
+                          onCheckedChange={(checked) =>
+                            setSelectedPriorities((prev) =>
+                              checked ? Array.from(new Set([...prev, "medium"])) : prev.filter((value) => value !== "medium"),
+                            )
+                          }
+                        />
+                        <span className="text-sm text-foreground">Medium priority</span>
+                      </label>
+                      <label className="flex items-center gap-3 rounded-xl border border-border/70 bg-background px-3 py-3">
+                        <Checkbox
+                          checked={selectedPriorities.includes("low")}
+                          onCheckedChange={(checked) =>
+                            setSelectedPriorities((prev) =>
+                              checked ? Array.from(new Set([...prev, "low"])) : prev.filter((value) => value !== "low"),
+                            )
+                          }
+                        />
+                        <span className="text-sm text-foreground">Low priority</span>
+                      </label>
+                    </div>
+
+                    <div className="space-y-3">
                       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Show Task Types</p>
                       <label className="flex items-center gap-3 rounded-xl border border-border/70 bg-background px-3 py-3">
                         <Checkbox checked={showOriginal} onCheckedChange={(checked) => setShowOriginal(Boolean(checked))} />
@@ -2244,98 +2351,102 @@ export default function DailyTaskPage() {
                       </Select>
                     </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor="task-instructions">Instructions / Brief by Brand</Label>
-                      {isReadOnlyTaskForm ? (
-                        <textarea
-                          id="task-instructions"
-                          className="min-h-24 w-full rounded-md border bg-muted px-3 py-2 text-sm text-muted-foreground"
-                          value={taskForm.instructions}
-                          disabled
-                        />
-                      ) : (
-                        <Editor
-                          editorSerializedState={taskForm.instructionsSerialized}
-                          onSerializedChange={(value) => setTaskForm((prev) => ({ ...prev, instructionsSerialized: value }))}
-                          onPlainTextChange={(value) => setTaskForm((prev) => ({ ...prev, instructions: value }))}
-                        />
-                      )}
-                    </div>
-
-                    {!isAccountPlanner ? (
+                    <div className="space-y-4">
                       <div className="space-y-2">
-                        <Label htmlFor="task-instructions-by-art-director">Instructions By Art Director</Label>
+                        <Label htmlFor="task-instructions">Instructions / Brief by Brand</Label>
                         {isReadOnlyTaskForm ? (
                           <textarea
-                            id="task-instructions-by-art-director"
-                            className="min-h-24 w-full rounded-md border bg-muted px-3 py-2 text-sm text-muted-foreground"
-                            value={taskForm.instructionsByArtDirector}
+                            id="task-instructions"
+                            className="min-h-24 max-h-72 w-full overflow-y-auto rounded-md border bg-muted px-3 py-2 text-sm text-muted-foreground"
+                            value={taskForm.instructions}
                             disabled
                           />
                         ) : (
                           <Editor
-                            editorSerializedState={taskForm.instructionsByArtDirectorSerialized}
-                            onSerializedChange={(value) =>
-                              setTaskForm((prev) => ({ ...prev, instructionsByArtDirectorSerialized: value }))
-                            }
-                            onPlainTextChange={(value) =>
-                              setTaskForm((prev) => ({ ...prev, instructionsByArtDirector: value }))
-                            }
+                            contentClassName="max-h-72 overflow-y-auto"
+                            editorSerializedState={taskForm.instructionsSerialized}
+                            onSerializedChange={(value) => setTaskForm((prev) => ({ ...prev, instructionsSerialized: value }))}
+                            onPlainTextChange={(value) => setTaskForm((prev) => ({ ...prev, instructions: value }))}
                           />
                         )}
                       </div>
-                    ) : null}
 
-                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between gap-3">
-                          <Label htmlFor="task-type-of-work">Type Of Work</Label>
-                          {canManageTypeOfWork ? (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              className="h-auto px-0 py-0 text-sm font-medium"
-                              disabled={isReadOnlyTaskForm}
-                              onClick={() => {
-                                setInlineTypeOfWorkOpen((prev) => !prev);
-                                setInlineTypeOfWorkForm(getEmptyInlineTypeOfWorkForm(isAccountPlanner));
-                              }}>
-                              <Plus className="h-4 w-4" />
-                              Add new
-                            </Button>
-                          ) : null}
+                      {!isAccountPlanner ? (
+                        <div className="space-y-2">
+                          <Label htmlFor="task-instructions-by-art-director">Instructions By Art Director</Label>
+                          {isReadOnlyTaskForm ? (
+                            <textarea
+                              id="task-instructions-by-art-director"
+                              className="min-h-24 max-h-72 w-full overflow-y-auto rounded-md border bg-muted px-3 py-2 text-sm text-muted-foreground"
+                              value={taskForm.instructionsByArtDirector}
+                              disabled
+                            />
+                          ) : (
+                            <Editor
+                              contentClassName="max-h-72 overflow-y-auto"
+                              editorSerializedState={taskForm.instructionsByArtDirectorSerialized}
+                              onSerializedChange={(value) =>
+                                setTaskForm((prev) => ({ ...prev, instructionsByArtDirectorSerialized: value }))
+                              }
+                              onPlainTextChange={(value) =>
+                                setTaskForm((prev) => ({ ...prev, instructionsByArtDirector: value }))
+                              }
+                            />
+                          )}
                         </div>
-                        <Select
-                          value={taskForm.typeOfWorkId || "__none__"}
-                          disabled={isReadOnlyTaskForm}
-                          onValueChange={(value) =>
-                            setTaskForm((prev) => ({ ...prev, typeOfWorkId: value === "__none__" ? "" : value }))
-                          }>
-                          <SelectTrigger id="task-type-of-work" className={`h-9 w-full rounded-md ${isReadOnlyTaskForm ? "bg-muted text-muted-foreground" : ""}`}>
-                            <SelectValue placeholder="Select type of work" />
-                          </SelectTrigger>
-                          <SelectContent className="max-h-72">
-                          <SelectItem value="__none__">Select type of work</SelectItem>
-                          {filteredTypeOfWorkOptions.map((item) => (
-                            <SelectItem key={String(item.id)} value={String(item.id)}>
-                              {item.work_type_name}
-                            </SelectItem>
-                          ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
+                      ) : null}
 
-                      <div className="space-y-2">
-                        <Label htmlFor="task-slides">Slides</Label>
-                        <Input
-                          id="task-slides"
-                          type="number"
-                          min="1"
-                          step="1"
-                          value={taskForm.slides}
-                          disabled={isReadOnlyTaskForm}
-                          onChange={(event) => setTaskForm((prev) => ({ ...prev, slides: event.target.value }))}
-                        />
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_180px]">
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between gap-3">
+                            <Label htmlFor="task-type-of-work">Type Of Work</Label>
+                            {canManageTypeOfWork ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                className="h-auto px-0 py-0 text-sm font-medium"
+                                disabled={isReadOnlyTaskForm}
+                                onClick={() => {
+                                  setInlineTypeOfWorkOpen((prev) => !prev);
+                                  setInlineTypeOfWorkForm(getEmptyInlineTypeOfWorkForm(isAccountPlanner));
+                                }}>
+                                <Plus className="h-4 w-4" />
+                                Add new
+                              </Button>
+                            ) : null}
+                          </div>
+                          <Select
+                            value={taskForm.typeOfWorkId || "__none__"}
+                            disabled={isReadOnlyTaskForm}
+                            onValueChange={(value) =>
+                              setTaskForm((prev) => ({ ...prev, typeOfWorkId: value === "__none__" ? "" : value }))
+                            }>
+                            <SelectTrigger id="task-type-of-work" className={`h-9 w-full rounded-md ${isReadOnlyTaskForm ? "bg-muted text-muted-foreground" : ""}`}>
+                              <SelectValue placeholder="Select type of work" />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-72">
+                              <SelectItem value="__none__">Select type of work</SelectItem>
+                              {filteredTypeOfWorkOptions.map((item) => (
+                                <SelectItem key={String(item.id)} value={String(item.id)}>
+                                  {item.work_type_name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="task-slides">Slides</Label>
+                          <Input
+                            id="task-slides"
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={taskForm.slides}
+                            disabled={isReadOnlyTaskForm}
+                            onChange={(event) => setTaskForm((prev) => ({ ...prev, slides: event.target.value }))}
+                          />
+                        </div>
                       </div>
                     </div>
 

@@ -190,11 +190,13 @@ const serviceCategoriesCrud = createCrud("/api/service-categories/");
 const typeOfWorkCrud = createCrud("/api/type-of-work/");
 const groupsCrud = createCrud("/api/groups/");
 const groupMembersCrud = createCrud("/api/group-members/");
+const additionalPointsCrud = createCrud("/api/additional-points/");
 const negativeRemarksCrud = createCrud("/api/negative-remarks/");
 const negativeRemarksOnTaskCrud = createCrud("/api/negative-remarks-on-task/");
 const taskStagesCrud = createCrud("/api/taskstage/");
 const taskOnStagesCrud = createCrud("/api/taskonstage/");
 const clientsCrud = createCrud("/api/clients/");
+const clientOwnersCrud = createCrud("/api/client-owners/");
 const clientAttachmentsCrud = createCrud("/api/client-attachments/");
 const clientMonthlyAmountsCrud = createCrud("/api/client-monthly-amounts/");
 const taskAttachmentsCrud = createCrud("/api/task-attachments/");
@@ -307,6 +309,7 @@ export const superboardApi = {
   employees: employeesCrud,
   groups: groupsCrud,
   groupMembers: groupMembersCrud,
+  additionalPoints: additionalPointsCrud,
   designers: {
     listAll: listDesignerUsers,
   },
@@ -318,8 +321,16 @@ export const superboardApi = {
   taskStages: taskStagesCrud,
   taskOnStages: taskOnStagesCrud,
   clients: clientsCrud,
+  clientOwners: clientOwnersCrud,
   clientAttachments: clientAttachmentsCrud,
-  clientMonthlyAmounts: clientMonthlyAmountsCrud,
+  clientMonthlyAmounts: {
+    ...clientMonthlyAmountsCrud,
+    applyRange: (payload) =>
+      httpRequest("/api/client-monthly-amounts/apply-range/", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+  },
   taskAttachments: taskAttachmentsCrud,
   scopeOfWork: scopeOfWorkCrud,
   tasks: {

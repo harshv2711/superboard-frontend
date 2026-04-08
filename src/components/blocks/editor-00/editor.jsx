@@ -24,6 +24,7 @@ export function Editor({
   onChange,
   onSerializedChange,
   onPlainTextChange,
+  contentClassName = "",
 }) {
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-background shadow-sm">
@@ -36,7 +37,7 @@ export function Editor({
             : {}),
         }}>
         <TooltipProvider>
-          <Plugins />
+          <Plugins contentClassName={contentClassName} />
 
           <OnChangePlugin
             ignoreSelectionChange={true}

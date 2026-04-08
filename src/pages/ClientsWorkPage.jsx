@@ -346,6 +346,14 @@ function truncateFileName(name, maxLength = 32) {
   return `${baseName.slice(0, available)}...${extension}`;
 }
 
+function getDesignerName(designer) {
+  if (!designer) return "";
+  if (designer.first_name || designer.last_name) {
+    return `${designer.first_name || ""} ${designer.last_name || ""}`.trim();
+  }
+  return designer.email || `Designer #${designer.id}`;
+}
+
 function TaskHistoryDrawer({ open, onOpenChange, task, items, canDeleteItem, deletingTaskId, onDeleteItem }) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -652,6 +660,8 @@ function getEmptyInlineTypeOfWorkForm(isAccountPlanner = false) {
 
 export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
   const swiperRef = useRef(null);
+  const topClientFilterRef = useRef(null);
+  const topDesignerFilterRef = useRef(null);
   const clientFilterRef = useRef(null);
   const designerFilterRef = useRef(null);
   const now = new Date();
@@ -665,7 +675,7 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
   const [negativeRemarkLinks, setNegativeRemarkLinks] = useState([]);
   const [reloadTick, setReloadTick] = useState(0);
   const [selectedClientIds, setSelectedClientIds] = useState([]);
-  const [selectedDesignerId, setSelectedDesignerId] = useState("");
+  const [selectedDesignerIds, setSelectedDesignerIds] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loadingClients, setLoadingClients] = useState(true);
   const [loadingTasks, setLoadingTasks] = useState(false);
@@ -693,11 +703,16 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
   );
   const [targetDateFrom, setTargetDateFrom] = useState("");
   const [targetDateTo, setTargetDateTo] = useState("");
+  const [selectedPriorities, setSelectedPriorities] = useState([]);
   const [showOriginal, setShowOriginal] = useState(true);
   const [showRevision, setShowRevision] = useState(true);
   const [showRedo, setShowRedo] = useState(true);
   const [showCompleted, setShowCompleted] = useState(true);
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
+  const [topClientFilterOpen, setTopClientFilterOpen] = useState(false);
+  const [topClientFilterQuery, setTopClientFilterQuery] = useState("");
+  const [topDesignerFilterOpen, setTopDesignerFilterOpen] = useState(false);
+  const [topDesignerFilterQuery, setTopDesignerFilterQuery] = useState("");
   const [clientFilterOpen, setClientFilterOpen] = useState(false);
   const [clientFilterQuery, setClientFilterQuery] = useState("");
   const [designerFilterOpen, setDesignerFilterOpen] = useState(false);
@@ -719,7 +734,8 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
     isAccountPlanner &&
     (!taskForm.isMarkedCompletedByArtDirector || !taskForm.isMarkedCompletedByDesigner);
   const artDirectorCompletionBlocked = isArtDirector && !taskForm.isMarkedCompletedByDesigner;
-  const selectedClientId = selectedClientIds[0] || "";
+  const selectedClientId = selectedClientIds.length === 1 ? selectedClientIds[0] || "" : "";
+  const isAllClientsSelected = clients.length > 0 && selectedClientIds.length === clients.length;
 
   useEffect(() => {
     let cancelled = false;
@@ -746,9 +762,9 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
           if (validIds.length > 0) return validIds;
           return sorted[0]?.id ? [String(sorted[0].id)] : [];
         });
-        setSelectedDesignerId((prev) => {
-          if (me?.role === "designer") return String(me.id || me.user_id || "");
-          return prev;
+        setSelectedDesignerIds((prev) => {
+          if (me?.role === "designer") return [String(me.id || me.user_id || "")];
+          return prev.filter((id) => allUsers.some((user) => String(user.id) === String(id)));
         });
       } catch (loadError) {
         if (cancelled) return;
@@ -768,6 +784,12 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
 
   useEffect(() => {
     function handleClickOutside(event) {
+      if (topClientFilterRef.current && !topClientFilterRef.current.contains(event.target)) {
+        setTopClientFilterOpen(false);
+      }
+      if (topDesignerFilterRef.current && !topDesignerFilterRef.current.contains(event.target)) {
+        setTopDesignerFilterOpen(false);
+      }
       if (clientFilterRef.current && !clientFilterRef.current.contains(event.target)) {
         setClientFilterOpen(false);
       }
@@ -829,8 +851,9 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
   }, [currentUserRole, reloadTick, selectedClientIds]);
 
   const selectedClient = useMemo(() => {
+    if (isAllClientsSelected || selectedClientIds.length !== 1) return null;
     return clients.find((client) => String(client.id) === String(selectedClientId)) || null;
-  }, [clients, selectedClientId]);
+  }, [clients, isAllClientsSelected, selectedClientId, selectedClientIds.length]);
   const clientOptions = useMemo(() => {
     return clients.map((client) => ({
       id: String(client.id),
@@ -838,13 +861,21 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
     }));
   }, [clients]);
   const selectedClientValues = useMemo(() => {
+    if (isAllClientsSelected) {
+      return [{ id: "__all_clients__", name: "All clients" }];
+    }
     return clientOptions.filter((client) => selectedClientIds.includes(client.id));
-  }, [clientOptions, selectedClientIds]);
+  }, [clientOptions, isAllClientsSelected, selectedClientIds]);
   const visibleClientOptions = useMemo(() => {
     const query = clientFilterQuery.trim().toLowerCase();
     if (!query) return clientOptions;
     return clientOptions.filter((client) => client.name.toLowerCase().includes(query));
   }, [clientFilterQuery, clientOptions]);
+  const visibleTopClientOptions = useMemo(() => {
+    const query = topClientFilterQuery.trim().toLowerCase();
+    if (!query) return clientOptions;
+    return clientOptions.filter((client) => client.name.toLowerCase().includes(query));
+  }, [clientOptions, topClientFilterQuery]);
   const filteredScopeOfWorkOptions = useMemo(() => {
     return scopeOfWorkOptions.filter((item) => String(item.client || item.client_id || "") === String(taskForm.clientId));
   }, [scopeOfWorkOptions, taskForm.clientId]);
@@ -889,16 +920,23 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
     return new Map(tasks.filter((task) => task?.id).map((task) => [String(task.id), task]));
   }, [tasks]);
   const designerOptions = useMemo(() => users, [users]);
+  const selectedDesignerValues = useMemo(() => {
+    return designerOptions
+      .filter((designer) => selectedDesignerIds.includes(String(designer.id)))
+      .map((designer) => ({ id: String(designer.id), name: getDesignerName(designer) }));
+  }, [designerOptions, selectedDesignerIds]);
   const visibleDesignerOptions = useMemo(() => {
     const query = designerFilterQuery.trim().toLowerCase();
     if (!query) return designerOptions;
     return designerOptions.filter((designer) => {
-      const label = designer.first_name || designer.last_name
-        ? `${designer.first_name || ""} ${designer.last_name || ""}`.trim()
-        : designer.email || "";
-      return label.toLowerCase().includes(query);
+      return getDesignerName(designer).toLowerCase().includes(query);
     });
   }, [designerFilterQuery, designerOptions]);
+  const visibleTopDesignerOptions = useMemo(() => {
+    const query = topDesignerFilterQuery.trim().toLowerCase();
+    if (!query) return designerOptions;
+    return designerOptions.filter((designer) => getDesignerName(designer).toLowerCase().includes(query));
+  }, [designerOptions, topDesignerFilterQuery]);
   const filteredTasks = useMemo(() => {
     return tasks.filter((task) => {
       if (searchQuery.trim() !== "") {
@@ -907,7 +945,8 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
         if (!taskName.includes(lowerSearch)) return false;
       }
 
-      if (selectedDesignerId && String(task.designer || "") !== String(selectedDesignerId)) return false;
+      if (selectedDesignerIds.length > 0 && !selectedDesignerIds.includes(String(task.designer || ""))) return false;
+      if (selectedPriorities.length > 0 && !selectedPriorities.includes(String(task.priority || "").toLowerCase())) return false;
 
       const taskType = getTaskStatus(task).toLowerCase();
       if (taskType === "original" && !showOriginal) return false;
@@ -936,7 +975,8 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
     dateFrom,
     dateTo,
     searchQuery,
-    selectedDesignerId,
+    selectedDesignerIds,
+    selectedPriorities,
     showCompleted,
     showOriginal,
     showRedo,
@@ -1058,8 +1098,11 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
   function resetFilters() {
     setSearchQuery("");
     setSelectedClientIds(clients[0]?.id ? [String(clients[0].id)] : []);
+    setTopClientFilterQuery("");
     setClientFilterQuery("");
-    setSelectedDesignerId(isDesigner ? currentUserId : "");
+    setSelectedDesignerIds(isDesigner ? [currentUserId] : []);
+    setTopDesignerFilterQuery("");
+    setSelectedPriorities([]);
     setDesignerFilterQuery("");
     setDateFrom("");
     setDateTo("");
@@ -1069,6 +1112,14 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
     setShowRevision(true);
     setShowRedo(true);
     setShowCompleted(true);
+  }
+
+  function toggleClientSelection(clientId) {
+    setSelectedClientIds((prev) => (prev.includes(clientId) ? prev.filter((id) => id !== clientId) : [...prev, clientId]));
+  }
+
+  function toggleDesignerSelection(designerId) {
+    setSelectedDesignerIds((prev) => (prev.includes(designerId) ? prev.filter((id) => id !== designerId) : [...prev, designerId]));
   }
 
   function resetDrawerState() {
@@ -1704,32 +1755,193 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
             <div className="mb-4 rounded-xl border border-border bg-card p-4 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div className="flex min-w-[260px] flex-wrap items-center gap-3">
-                  <>
-                    <label htmlFor="client-select" className="text-sm font-semibold text-muted-foreground">
-                      Client
-                    </label>
-                    <Select value={selectedClientId || undefined} onValueChange={(value) => setSelectedClientIds(value ? [String(value)] : [])}>
-                      <SelectTrigger id="client-select" className="h-11 min-w-[300px] rounded-xl px-4 text-sm shadow-sm">
-                        <SelectValue placeholder="Select client" />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-72">
-                        {clients.map((client) => (
-                          <SelectItem key={String(client.id)} value={String(client.id)}>
-                            {getClientName(client)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </>
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-muted-foreground">Client</label>
+                    <div className="relative min-w-[320px]" ref={topClientFilterRef}>
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        className="flex min-h-11 w-full items-center justify-between rounded-xl border border-border bg-background px-4 py-3 text-left shadow-sm transition hover:bg-muted/40"
+                        onClick={() => setTopClientFilterOpen((open) => !open)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            setTopClientFilterOpen((open) => !open);
+                          }
+                        }}>
+                        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                          {selectedClientValues.length > 0 ? (
+                            selectedClientValues.map((client) => (
+                              <Badge key={client.id} variant="secondary" className="h-8 rounded-full px-3 text-sm">
+                                <span className="truncate max-w-44">{client.name}</span>
+                                <button
+                                  type="button"
+                                  className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground transition hover:text-foreground"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    if (client.id === "__all_clients__") {
+                                      setSelectedClientIds([]);
+                                      return;
+                                    }
+                                    setSelectedClientIds((prev) => prev.filter((id) => id !== client.id));
+                                  }}>
+                                  <X className="h-3 w-3" />
+                                </button>
+                              </Badge>
+                            ))
+                          ) : (
+                            <span className="text-sm text-muted-foreground">Select clients</span>
+                          )}
+                        </div>
+                        <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition ${topClientFilterOpen ? "rotate-180" : ""}`} />
+                      </div>
+
+                      {topClientFilterOpen ? (
+                        <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-20 rounded-2xl border border-border bg-popover p-3 shadow-xl">
+                          <Input
+                            value={topClientFilterQuery}
+                            onChange={(event) => setTopClientFilterQuery(event.target.value)}
+                            placeholder="Search clients..."
+                            className="h-10 rounded-lg"
+                          />
+                          <div className="mt-3 max-h-64 space-y-1 overflow-y-auto">
+                            <div
+                              role="button"
+                              tabIndex={0}
+                              className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition hover:bg-muted"
+                              onClick={() => setSelectedClientIds(clients.map((client) => String(client.id)))}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  setSelectedClientIds(clients.map((client) => String(client.id)));
+                                }
+                              }}>
+                              <div className="flex items-center gap-3">
+                                <Checkbox checked={isAllClientsSelected} tabIndex={-1} className="pointer-events-none" />
+                                <span className="text-sm font-medium text-foreground">All clients</span>
+                              </div>
+                              {isAllClientsSelected ? <Check className="h-4 w-4 text-primary" /> : null}
+                            </div>
+                            {visibleTopClientOptions.length > 0 ? (
+                              visibleTopClientOptions.map((client) => {
+                                const isChecked = selectedClientIds.includes(client.id);
+                                return (
+                                  <div
+                                    key={client.id}
+                                    role="button"
+                                    tabIndex={0}
+                                    className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition hover:bg-muted"
+                                    onClick={() => toggleClientSelection(client.id)}
+                                    onKeyDown={(event) => {
+                                      if (event.key === "Enter" || event.key === " ") {
+                                        event.preventDefault();
+                                        toggleClientSelection(client.id);
+                                      }
+                                    }}>
+                                    <div className="flex items-center gap-3">
+                                      <Checkbox checked={isChecked} tabIndex={-1} className="pointer-events-none" />
+                                      <span className="text-sm font-medium text-foreground">{client.name}</span>
+                                    </div>
+                                    {isChecked ? <Check className="h-4 w-4 text-primary" /> : null}
+                                  </div>
+                                );
+                              })
+                            ) : (
+                              <div className="rounded-xl border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
+                                No clients found.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                  {currentUserRole !== "designer" && currentUserRole !== "account_planner" ? (
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-muted-foreground">Designer</label>
+                      <div className="relative min-w-[320px]" ref={topDesignerFilterRef}>
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          className="flex min-h-11 w-full items-center justify-between rounded-xl border border-border bg-background px-4 py-3 text-left shadow-sm transition hover:bg-muted/40"
+                          onClick={() => setTopDesignerFilterOpen((open) => !open)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              setTopDesignerFilterOpen((open) => !open);
+                            }
+                          }}>
+                          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                            {selectedDesignerValues.length > 0 ? (
+                              selectedDesignerValues.map((designer) => (
+                                <Badge key={designer.id} variant="secondary" className="h-8 rounded-full px-3 text-sm">
+                                  <span className="truncate max-w-44">{designer.name}</span>
+                                  <button
+                                    type="button"
+                                    className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground transition hover:text-foreground"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      setSelectedDesignerIds((prev) => prev.filter((id) => id !== designer.id));
+                                    }}>
+                                    <X className="h-3 w-3" />
+                                  </button>
+                                </Badge>
+                              ))
+                            ) : (
+                              <span className="text-sm text-muted-foreground">All designers</span>
+                            )}
+                          </div>
+                          <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition ${topDesignerFilterOpen ? "rotate-180" : ""}`} />
+                        </div>
+
+                        {topDesignerFilterOpen ? (
+                          <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-20 rounded-2xl border border-border bg-popover p-3 shadow-xl">
+                            <Input
+                              value={topDesignerFilterQuery}
+                              onChange={(event) => setTopDesignerFilterQuery(event.target.value)}
+                              placeholder="Search designers..."
+                              className="h-10 rounded-lg"
+                            />
+                            <div className="mt-3 max-h-64 space-y-1 overflow-y-auto">
+                              {visibleTopDesignerOptions.length > 0 ? (
+                                visibleTopDesignerOptions.map((designer) => {
+                                  const isChecked = selectedDesignerIds.includes(String(designer.id));
+                                  const label = getDesignerName(designer);
+                                  return (
+                                    <div
+                                      key={String(designer.id)}
+                                      role="button"
+                                      tabIndex={0}
+                                      className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition hover:bg-muted"
+                                      onClick={() => toggleDesignerSelection(String(designer.id))}
+                                      onKeyDown={(event) => {
+                                        if (event.key === "Enter" || event.key === " ") {
+                                          event.preventDefault();
+                                          toggleDesignerSelection(String(designer.id));
+                                        }
+                                      }}>
+                                      <div className="flex items-center gap-3">
+                                        <Checkbox checked={isChecked} tabIndex={-1} className="pointer-events-none" />
+                                        <span className="text-sm font-medium text-foreground">{label}</span>
+                                      </div>
+                                      {isChecked ? <Check className="h-4 w-4 text-primary" /> : null}
+                                    </div>
+                                  );
+                                })
+                              ) : (
+                                <div className="rounded-xl border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
+                                  No designers found.
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                {canCreateTask ? (
-                  <Button className="rounded-full" onClick={openCreateTaskDrawer} disabled={!selectedClientId}>
-                    <Plus className="h-4 w-4" />
-                    Create Task
-                  </Button>
-                ) : null}
                 <Badge variant="secondary" className="rounded-full px-3 py-2 text-sm">
                   {visibleTasks.length} task(s)
                 </Badge>
@@ -1837,16 +2049,12 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
                                       tabIndex={0}
                                       className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition hover:bg-muted"
                                       onClick={() =>
-                                        setSelectedClientIds((prev) =>
-                                          prev.includes(client.id) ? prev.filter((id) => id !== client.id) : [...prev, client.id],
-                                        )
+                                        toggleClientSelection(client.id)
                                       }
                                       onKeyDown={(event) => {
                                         if (event.key === "Enter" || event.key === " ") {
                                           event.preventDefault();
-                                          setSelectedClientIds((prev) =>
-                                            prev.includes(client.id) ? prev.filter((id) => id !== client.id) : [...prev, client.id],
-                                          );
+                                          toggleClientSelection(client.id);
                                         }
                                       }}>
                                       <div className="flex items-center gap-3">
@@ -1886,29 +2094,21 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
                               }
                             }}>
                             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                              {selectedDesignerId ? (
-                                (() => {
-                                  const selectedDesigner = designerOptions.find((designer) => String(designer.id) === String(selectedDesignerId));
-                                  const label = selectedDesigner
-                                    ? selectedDesigner.first_name || selectedDesigner.last_name
-                                      ? `${selectedDesigner.first_name || ""} ${selectedDesigner.last_name || ""}`.trim()
-                                      : selectedDesigner.email
-                                    : "Selected designer";
-                                  return (
-                                    <Badge variant="secondary" className="h-8 rounded-full px-3 text-sm">
-                                      <span className="truncate max-w-44">{label}</span>
-                                      <button
-                                        type="button"
-                                        className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground transition hover:text-foreground"
-                                        onClick={(event) => {
-                                          event.stopPropagation();
-                                          setSelectedDesignerId("");
-                                        }}>
-                                        <X className="h-3 w-3" />
-                                      </button>
-                                    </Badge>
-                                  );
-                                })()
+                              {selectedDesignerValues.length > 0 ? (
+                                selectedDesignerValues.map((designer) => (
+                                  <Badge key={designer.id} variant="secondary" className="h-8 rounded-full px-3 text-sm">
+                                    <span className="truncate max-w-44">{designer.name}</span>
+                                    <button
+                                      type="button"
+                                      className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground transition hover:text-foreground"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        setSelectedDesignerIds((prev) => prev.filter((id) => id !== designer.id));
+                                      }}>
+                                      <X className="h-3 w-3" />
+                                    </button>
+                                  </Badge>
+                                ))
                               ) : (
                                 <span className="text-sm text-muted-foreground">All designers</span>
                               )}
@@ -1929,36 +2129,34 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
                                   role="button"
                                   tabIndex={0}
                                   className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition hover:bg-muted"
-                                  onClick={() => setSelectedDesignerId("")}
+                                  onClick={() => setSelectedDesignerIds([])}
                                   onKeyDown={(event) => {
                                     if (event.key === "Enter" || event.key === " ") {
                                       event.preventDefault();
-                                      setSelectedDesignerId("");
+                                      setSelectedDesignerIds([]);
                                     }
                                   }}>
                                   <div className="flex items-center gap-3">
-                                    <Checkbox checked={!selectedDesignerId} tabIndex={-1} className="pointer-events-none" />
+                                    <Checkbox checked={selectedDesignerIds.length === 0} tabIndex={-1} className="pointer-events-none" />
                                     <span className="text-sm font-medium text-foreground">All designers</span>
                                   </div>
-                                  {!selectedDesignerId ? <Check className="h-4 w-4 text-primary" /> : null}
+                                  {selectedDesignerIds.length === 0 ? <Check className="h-4 w-4 text-primary" /> : null}
                                 </div>
                                 {visibleDesignerOptions.length > 0 ? (
                                   visibleDesignerOptions.map((designer) => {
-                                    const label = designer.first_name || designer.last_name
-                                      ? `${designer.first_name || ""} ${designer.last_name || ""}`.trim()
-                                      : designer.email;
-                                    const isChecked = String(selectedDesignerId) === String(designer.id);
+                                    const label = getDesignerName(designer);
+                                    const isChecked = selectedDesignerIds.includes(String(designer.id));
                                     return (
                                       <div
                                         key={String(designer.id)}
                                         role="button"
                                         tabIndex={0}
                                         className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition hover:bg-muted"
-                                        onClick={() => setSelectedDesignerId(String(designer.id))}
+                                        onClick={() => toggleDesignerSelection(String(designer.id))}
                                         onKeyDown={(event) => {
                                           if (event.key === "Enter" || event.key === " ") {
                                             event.preventDefault();
-                                            setSelectedDesignerId(String(designer.id));
+                                            toggleDesignerSelection(String(designer.id));
                                           }
                                         }}>
                                         <div className="flex items-center gap-3">
@@ -2033,6 +2231,43 @@ export default function ClientsWorkPage({ headerTitle = "Task Manager" }) {
                           className="h-11 rounded-xl bg-background shadow-sm"
                         />
                       </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Filter by Priority</p>
+                      <label className="flex items-center gap-3 rounded-xl border border-border/70 bg-background px-3 py-3">
+                        <Checkbox
+                          checked={selectedPriorities.includes("high")}
+                          onCheckedChange={(checked) =>
+                            setSelectedPriorities((prev) =>
+                              checked ? Array.from(new Set([...prev, "high"])) : prev.filter((value) => value !== "high"),
+                            )
+                          }
+                        />
+                        <span className="text-sm text-foreground">High priority</span>
+                      </label>
+                      <label className="flex items-center gap-3 rounded-xl border border-border/70 bg-background px-3 py-3">
+                        <Checkbox
+                          checked={selectedPriorities.includes("medium")}
+                          onCheckedChange={(checked) =>
+                            setSelectedPriorities((prev) =>
+                              checked ? Array.from(new Set([...prev, "medium"])) : prev.filter((value) => value !== "medium"),
+                            )
+                          }
+                        />
+                        <span className="text-sm text-foreground">Medium priority</span>
+                      </label>
+                      <label className="flex items-center gap-3 rounded-xl border border-border/70 bg-background px-3 py-3">
+                        <Checkbox
+                          checked={selectedPriorities.includes("low")}
+                          onCheckedChange={(checked) =>
+                            setSelectedPriorities((prev) =>
+                              checked ? Array.from(new Set([...prev, "low"])) : prev.filter((value) => value !== "low"),
+                            )
+                          }
+                        />
+                        <span className="text-sm text-foreground">Low priority</span>
+                      </label>
                     </div>
 
                     <div className="space-y-3">

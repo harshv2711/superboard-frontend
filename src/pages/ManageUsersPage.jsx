@@ -4,6 +4,7 @@ import { superboardApi } from "@/api/superboardApi";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -16,11 +17,9 @@ import { Pencil, Plus, Trash2 } from "lucide-react";
 
 const ROLE_OPTIONS = [
   { value: "superuser", label: "Superuser" },
-  { value: "admin", label: "Admin" },
   { value: "account_planner", label: "Account Planner" },
   { value: "art_director", label: "Art Director" },
   { value: "designer", label: "Designer" },
-  { value: "human_resource", label: "Human Resource" },
 ];
 
 function toUserForm(item = null) {
@@ -31,11 +30,23 @@ function toUserForm(item = null) {
     lastName: item?.last_name || "",
     role: item?.role || "designer",
     password: "",
+    isStaff: Boolean(item?.is_staff),
+    isSuperuser: Boolean(item?.is_superuser),
+    isActive: item?.is_active ?? true,
   };
 }
 
 function getRoleLabel(role) {
   return ROLE_OPTIONS.find((option) => option.value === role)?.label || role || "Unknown";
+}
+
+function getCollectionCount(payload) {
+  if (Array.isArray(payload)) return payload.length;
+  if (payload && typeof payload === "object") {
+    if (typeof payload.count === "number") return payload.count;
+    if (Array.isArray(payload.results)) return payload.results.length;
+  }
+  return 0;
 }
 
 export default function ManageUsersPage() {
@@ -47,6 +58,8 @@ export default function ManageUsersPage() {
   const [saving, setSaving] = useState(false);
   const [drawerError, setDrawerError] = useState("");
   const [form, setForm] = useState(toUserForm());
+  const [deleteCheckLoading, setDeleteCheckLoading] = useState(false);
+  const [deleteBlockedReasons, setDeleteBlockedReasons] = useState([]);
 
   async function loadItems() {
     try {
@@ -79,6 +92,8 @@ export default function ManageUsersPage() {
       setDrawerError("");
       setSaving(false);
       setForm(toUserForm());
+      setDeleteCheckLoading(false);
+      setDeleteBlockedReasons([]);
     }
   }
 
@@ -86,14 +101,60 @@ export default function ManageUsersPage() {
     setDrawerMode("create");
     setDrawerError("");
     setForm(toUserForm());
+    setDeleteCheckLoading(false);
+    setDeleteBlockedReasons([]);
     setDrawerOpen(true);
+  }
+
+  async function loadDeleteProtection(item) {
+    if (!item?.id) {
+      setDeleteBlockedReasons([]);
+      return;
+    }
+
+    setDeleteCheckLoading(true);
+    try {
+      const userId = String(item.id);
+      const [clientOwners, additionalPoints, groupMembers, designTasks, allTasks] = await Promise.all([
+        superboardApi.clientOwners.list({ user: userId, page_size: 1 }),
+        superboardApi.additionalPoints.list({ user: userId, page_size: 1 }),
+        superboardApi.groupMembers.list({ user: userId, page_size: 1 }),
+        superboardApi.tasks.list({ designer: userId, page_size: 1 }),
+        superboardApi.tasks.listAll({ page_size: 500 }),
+      ]);
+
+      const createdTaskCount = (Array.isArray(allTasks) ? allTasks : []).filter(
+        (task) => String(task?.created_by || "") === userId,
+      ).length;
+
+      const nextReasons = [
+        { label: "employee profile", count: item?.has_employee_profile ? 1 : 0 },
+        { label: "client ownerships", count: getCollectionCount(clientOwners) },
+        { label: "additional points entries", count: getCollectionCount(additionalPoints) },
+        { label: "group memberships", count: getCollectionCount(groupMembers) },
+        { label: "assigned tasks", count: getCollectionCount(designTasks) },
+        { label: "created tasks", count: createdTaskCount },
+      ]
+        .filter((entry) => entry.count > 0)
+        .map((entry) => `${entry.label} (${entry.count})`);
+
+      setDeleteBlockedReasons(nextReasons);
+    } catch (requestError) {
+      setDeleteBlockedReasons(["Unable to verify related records."]);
+      toast.error(requestError.message || "Failed to verify user relationships.");
+    } finally {
+      setDeleteCheckLoading(false);
+    }
   }
 
   function openEditDrawer(item) {
     setDrawerMode("edit");
     setDrawerError("");
     setForm(toUserForm(item));
+    setDeleteBlockedReasons([]);
+    setDeleteCheckLoading(true);
     setDrawerOpen(true);
+    loadDeleteProtection(item);
   }
 
   async function handleSave(event) {
@@ -106,6 +167,9 @@ export default function ManageUsersPage() {
         first_name: form.firstName.trim(),
         last_name: form.lastName.trim(),
         role: form.role,
+        is_staff: form.isStaff,
+        is_superuser: form.isSuperuser,
+        is_active: form.isActive,
       };
 
       if (form.password.trim()) {
@@ -133,6 +197,10 @@ export default function ManageUsersPage() {
 
   async function handleDelete(itemId) {
     if (!itemId || !window.confirm("Delete this user?")) return;
+    if (deleteBlockedReasons.length > 0) {
+      toast.error("This user cannot be deleted because it is linked to other records.");
+      return;
+    }
     try {
       await superboardApi.users.remove(itemId);
       toast.success("User deleted successfully.");
@@ -146,6 +214,8 @@ export default function ManageUsersPage() {
       toast.error(message);
     }
   }
+
+  const deleteDisabled = deleteCheckLoading || deleteBlockedReasons.length > 0;
 
   return (
     <TooltipProvider>
@@ -195,7 +265,16 @@ export default function ManageUsersPage() {
                     </div>
                     <div className="space-y-2">
                       <Label>User Role</Label>
-                      <Select value={form.role} onValueChange={(value) => setForm((prev) => ({ ...prev, role: value }))}>
+                      <Select
+                        value={form.role}
+                        onValueChange={(value) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            role: value,
+                            isSuperuser: value === "superuser" ? true : prev.isSuperuser && value === "superuser",
+                            isStaff: value === "superuser" ? true : prev.isStaff,
+                          }))
+                        }>
                         <SelectTrigger className="rounded-xl">
                           <SelectValue placeholder="Select role" />
                         </SelectTrigger>
@@ -208,6 +287,39 @@ export default function ManageUsersPage() {
                         </SelectContent>
                       </Select>
                     </div>
+                    <div className="grid gap-3 rounded-xl border border-border bg-muted/30 p-3">
+                      <div className="flex items-center gap-3">
+                        <Checkbox
+                          id="user-is-staff"
+                          checked={form.isStaff}
+                          onCheckedChange={(checked) => setForm((prev) => ({ ...prev, isStaff: Boolean(checked) }))}
+                        />
+                        <Label htmlFor="user-is-staff" className="cursor-pointer">Staff status</Label>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <Checkbox
+                          id="user-is-superuser"
+                          checked={form.isSuperuser}
+                          onCheckedChange={(checked) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              isSuperuser: Boolean(checked),
+                              isStaff: Boolean(checked) ? true : prev.isStaff,
+                              role: Boolean(checked) ? "superuser" : prev.role,
+                            }))
+                          }
+                        />
+                        <Label htmlFor="user-is-superuser" className="cursor-pointer">Superuser status</Label>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <Checkbox
+                          id="user-is-active"
+                          checked={form.isActive}
+                          onCheckedChange={(checked) => setForm((prev) => ({ ...prev, isActive: Boolean(checked) }))}
+                        />
+                        <Label htmlFor="user-is-active" className="cursor-pointer">Active account</Label>
+                      </div>
+                    </div>
                     <div className="space-y-2">
                       <Label htmlFor="user-password">{form.id ? "New Password" : "Password"}</Label>
                       <Input
@@ -219,14 +331,38 @@ export default function ManageUsersPage() {
                       />
                     </div>
                     {drawerError ? <p className="text-sm text-destructive">{drawerError}</p> : null}
+                    {drawerMode === "edit" ? (
+                      <div className="rounded-xl border border-border bg-muted/30 p-3 text-sm">
+                        {deleteCheckLoading ? (
+                          <p className="text-muted-foreground">Checking related records before allowing delete...</p>
+                        ) : deleteBlockedReasons.length > 0 ? (
+                          <div className="space-y-2">
+                            <p className="font-medium text-foreground">Delete disabled for this user.</p>
+                            <p className="text-muted-foreground">This user is still linked to:</p>
+                            <ul className="list-disc pl-5 text-muted-foreground">
+                              {deleteBlockedReasons.map((reason) => (
+                                <li key={reason}>{reason}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : (
+                          <p className="text-muted-foreground">No linked records found. This user can be deleted.</p>
+                        )}
+                      </div>
+                    ) : null}
                     <div className="flex flex-col gap-2">
                       <Button type="submit" disabled={saving}>
                         {saving ? "Saving..." : drawerMode === "edit" ? "Update user" : "Add user"}
                       </Button>
                       {drawerMode === "edit" && form.id ? (
-                        <Button type="button" variant="outline" className="border-destructive text-destructive hover:bg-destructive/10" onClick={() => handleDelete(form.id)}>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="border-destructive text-destructive hover:bg-destructive/10 disabled:border-muted disabled:text-muted-foreground"
+                          onClick={() => handleDelete(form.id)}
+                          disabled={deleteDisabled}>
                           <Trash2 className="h-4 w-4" />
-                          Delete user
+                          {deleteCheckLoading ? "Checking..." : "Delete user"}
                         </Button>
                       ) : null}
                     </div>
@@ -246,13 +382,15 @@ export default function ManageUsersPage() {
                       <TableHead className="px-4">Email</TableHead>
                       <TableHead className="px-4">Name</TableHead>
                       <TableHead className="px-4">Role</TableHead>
+                      <TableHead className="px-4">Staff</TableHead>
+                      <TableHead className="px-4">Superuser</TableHead>
                       <TableHead className="px-4 text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {sortedItems.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={4} className="px-4 py-8 text-center text-muted-foreground">
+                        <TableCell colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
                           No users found.
                         </TableCell>
                       </TableRow>
@@ -264,6 +402,8 @@ export default function ManageUsersPage() {
                       <TableCell className="px-4 py-4 font-medium">{item.email}</TableCell>
                       <TableCell className="px-4 py-4">{fullName || "-"}</TableCell>
                       <TableCell className="px-4 py-4">{getRoleLabel(item.role)}</TableCell>
+                      <TableCell className="px-4 py-4">{item.is_staff ? "Yes" : "No"}</TableCell>
+                      <TableCell className="px-4 py-4">{item.is_superuser ? "Yes" : "No"}</TableCell>
                       <TableCell className="px-4 py-4 text-right">
                         <Button variant="ghost" size="icon" onClick={() => openEditDrawer(item)} aria-label="Edit user">
                           <Pencil className="h-4 w-4" />

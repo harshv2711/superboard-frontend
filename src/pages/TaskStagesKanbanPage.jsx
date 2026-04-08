@@ -304,6 +304,7 @@ export default function TaskStagesKanbanPage() {
   const [createdDateTo, setCreatedDateTo] = useState("");
   const [targetDateFrom, setTargetDateFrom] = useState("");
   const [targetDateTo, setTargetDateTo] = useState("");
+  const [selectedPriorities, setSelectedPriorities] = useState([]);
   const [showOriginal, setShowOriginal] = useState(true);
   const [showRevision, setShowRevision] = useState(true);
   const [showRedo, setShowRedo] = useState(true);
@@ -436,6 +437,7 @@ export default function TaskStagesKanbanPage() {
 
       if (selectedClientIds.length > 0 && !selectedClientIds.includes(String(task.client || ""))) return false;
       if (isArtDirector && selectedDesignerIds.length > 0 && !selectedDesignerIds.includes(String(task.designer || ""))) return false;
+      if (selectedPriorities.length > 0 && !selectedPriorities.includes(String(task.priority || "").toLowerCase())) return false;
 
       const taskType = getTaskType(task);
       if (taskType === "original" && !showOriginal) return false;
@@ -452,7 +454,7 @@ export default function TaskStagesKanbanPage() {
       if (targetDateTo && (!taskTargetDateKey || taskTargetDateKey > targetDateTo)) return false;
       return true;
     })
-  ), [createdDateFrom, createdDateTo, isArtDirector, searchQuery, selectedClientIds, selectedDesignerIds, showCompleted, showOriginal, showRedo, showRevision, targetDateFrom, targetDateTo, tasks]);
+  ), [createdDateFrom, createdDateTo, isArtDirector, searchQuery, selectedClientIds, selectedDesignerIds, selectedPriorities, showCompleted, showOriginal, showRedo, showRevision, targetDateFrom, targetDateTo, tasks]);
 
   const columns = useMemo(
     () => buildColumns(filteredTasks, "", currentViewConfig.columns, viewMode),
@@ -479,6 +481,7 @@ export default function TaskStagesKanbanPage() {
     setCreatedDateTo("");
     setTargetDateFrom("");
     setTargetDateTo("");
+    setSelectedPriorities([]);
     setShowOriginal(true);
     setShowRevision(true);
     setShowRedo(true);
@@ -760,6 +763,43 @@ export default function TaskStagesKanbanPage() {
                     <Label htmlFor="kanban-target-date-to" className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Target Date To</Label>
                     <Input id="kanban-target-date-to" type="date" value={targetDateTo} onChange={(event) => setTargetDateTo(event.target.value)} className="h-11 rounded-xl bg-background shadow-sm" />
                   </div>
+                </div>
+
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Filter by Priority</p>
+                  <label className="flex items-center gap-3 rounded-xl border border-border/70 bg-background px-3 py-3">
+                    <Checkbox
+                      checked={selectedPriorities.includes("high")}
+                      onCheckedChange={(checked) =>
+                        setSelectedPriorities((prev) =>
+                          checked ? Array.from(new Set([...prev, "high"])) : prev.filter((value) => value !== "high"),
+                        )
+                      }
+                    />
+                    <span className="text-sm text-foreground">High priority</span>
+                  </label>
+                  <label className="flex items-center gap-3 rounded-xl border border-border/70 bg-background px-3 py-3">
+                    <Checkbox
+                      checked={selectedPriorities.includes("medium")}
+                      onCheckedChange={(checked) =>
+                        setSelectedPriorities((prev) =>
+                          checked ? Array.from(new Set([...prev, "medium"])) : prev.filter((value) => value !== "medium"),
+                        )
+                      }
+                    />
+                    <span className="text-sm text-foreground">Medium priority</span>
+                  </label>
+                  <label className="flex items-center gap-3 rounded-xl border border-border/70 bg-background px-3 py-3">
+                    <Checkbox
+                      checked={selectedPriorities.includes("low")}
+                      onCheckedChange={(checked) =>
+                        setSelectedPriorities((prev) =>
+                          checked ? Array.from(new Set([...prev, "low"])) : prev.filter((value) => value !== "low"),
+                        )
+                      }
+                    />
+                    <span className="text-sm text-foreground">Low priority</span>
+                  </label>
                 </div>
 
                 <div className="space-y-3">
