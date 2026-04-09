@@ -87,11 +87,38 @@ function buildUrl(path, query = {}) {
   return url.toString();
 }
 
-function resolveUrl(pathOrUrl) {
-  if (pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://")) {
+function normalizeApiUrl(pathOrUrl) {
+  if (!(pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://"))) {
+    return buildUrl(pathOrUrl);
+  }
+
+  try {
+    const targetUrl = new URL(pathOrUrl);
+
+    if (typeof window !== "undefined") {
+      const currentUrl = new URL(window.location.href);
+      const configuredBaseUrl = API_BASE_URL ? new URL(API_BASE_URL) : null;
+      const isSameCurrentHost =
+        targetUrl.hostname === currentUrl.hostname &&
+        String(targetUrl.port || "") === String(currentUrl.port || "");
+      const isSameApiHost =
+        configuredBaseUrl &&
+        targetUrl.hostname === configuredBaseUrl.hostname &&
+        String(targetUrl.port || "") === String(configuredBaseUrl.port || "");
+
+      if ((isSameCurrentHost || isSameApiHost) && targetUrl.protocol !== currentUrl.protocol) {
+        targetUrl.protocol = currentUrl.protocol;
+      }
+    }
+
+    return targetUrl.toString();
+  } catch {
     return pathOrUrl;
   }
-  return buildUrl(pathOrUrl);
+}
+
+function resolveUrl(pathOrUrl) {
+  return normalizeApiUrl(pathOrUrl);
 }
 
 function serializeRequestBody(payload) {
@@ -135,7 +162,7 @@ async function httpRequest(path, options = {}) {
 }
 
 async function listAllPages(path, query = {}) {
-  let nextUrl = buildUrl(path, query);
+  let nextUrl = resolveUrl(path.startsWith("http://") || path.startsWith("https://") ? path : buildUrl(path, query));
   const allRows = [];
   const currentToken = getStoredToken();
   const headers = {
@@ -164,7 +191,7 @@ async function listAllPages(path, query = {}) {
       nextUrl = null;
     } else {
       allRows.push(...(payload.results || []));
-      nextUrl = payload.next;
+      nextUrl = payload.next ? resolveUrl(payload.next) : null;
     }
   }
 
