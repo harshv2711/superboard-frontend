@@ -31,6 +31,14 @@ const TASK_PRIORITY_BADGE_STYLES = {
   low: "border-emerald-200 bg-emerald-50 text-emerald-700",
 };
 
+const TASK_STAGE_OPTIONS = [
+  { value: "backlog", label: "Initiate" },
+  { value: "on_going", label: "Ongoing" },
+  { value: "complete", label: "Complete" },
+  { value: "approved_by_art_director_waiting_for_approval", label: "Approved By Art Director" },
+  { value: "approved", label: "Approved by Client" },
+];
+
 const PLATFORM_OPTIONS = [
   { value: "instagram", label: "Instagram" },
   { value: "facebook", label: "Facebook" },
@@ -382,11 +390,8 @@ function formatDateTime(isoDate) {
 }
 
 function getTaskStageLabel(task) {
-  if (task?.stage === "backlog") return "Initiate";
-  if (task?.stage === "on_going") return "Ongoing";
-  if (task?.stage === "complete") return "Complete";
-  if (task?.stage === "approved_by_art_director_waiting_for_approval") return "Approved By Art Director";
-  if (task?.stage === "approved") return "Approved by Client";
+  const matchedStage = TASK_STAGE_OPTIONS.find((option) => option.value === task?.stage);
+  if (matchedStage) return matchedStage.label;
   return task?.stage || "-";
 }
 
@@ -510,6 +515,7 @@ function TaskCard({
   task,
   attachments,
   negativeRemarkLinks,
+  isSuperuser,
   isAccountPlanner,
   isArtDirector,
   isDesigner,
@@ -524,6 +530,7 @@ function TaskCard({
   onToggleMarkComplete,
   onToggleArtDirectorApproval,
   onToggleClientApproval,
+  onChangeStage,
   onAddRevision,
   onAddRedo,
   onOpenHistory,
@@ -635,6 +642,28 @@ function TaskCard({
               ) : null}
             </div>
           </label>
+        ) : null}
+        {isSuperuser ? (
+          <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Task Stage</p>
+            <Select
+              value={String(task?.stage || "backlog")}
+              onValueChange={(value) => onChangeStage(task, value)}
+              disabled={updatingTaskStage}
+            >
+              <SelectTrigger className="mt-2 h-11 rounded-xl border-border/70 bg-background font-medium text-foreground">
+                <SelectValue placeholder="Select task stage" />
+              </SelectTrigger>
+              <SelectContent>
+                {TASK_STAGE_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {updatingTaskStage ? <p className="mt-2 text-sm font-medium text-foreground">Updating task stage...</p> : null}
+          </div>
         ) : null}
         <div className="grid gap-3 text-sm">
           <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
@@ -1792,6 +1821,29 @@ export default function DailyTaskPage() {
     }
   }
 
+  async function handleSuperuserStageChange(task, nextStage) {
+    if (!isSuperuser || !task?.id) {
+      toast.error("You do not have permission to update this task.");
+      return;
+    }
+
+    const currentStage = String(task?.stage || "backlog");
+    if (!TASK_STAGE_OPTIONS.some((option) => option.value === nextStage) || currentStage === nextStage) return;
+
+    setUpdatingTaskStageTaskId(String(task.id));
+    try {
+      await superboardApi.tasks.patch(task.id, {
+        stage: nextStage,
+      });
+      toast.success(`Task stage changed to ${getTaskStageLabel({ stage: nextStage })}.`);
+      setReloadTick((value) => value + 1);
+    } catch (requestError) {
+      toast.error(requestError.message || "Failed to update task stage.");
+    } finally {
+      setUpdatingTaskStageTaskId(null);
+    }
+  }
+
   function toggleClientFilter(clientId) {
     setSelectedClientIds((prev) => {
       if (prev.includes(clientId)) {
@@ -1896,6 +1948,7 @@ export default function DailyTaskPage() {
                       task={task}
                       attachments={attachmentsByTaskId[String(task.id)] || []}
                       negativeRemarkLinks={negativeRemarkLinksByTaskId[String(task.id)] || []}
+                      isSuperuser={isSuperuser}
                       isAccountPlanner={isAccountPlanner}
                       isArtDirector={isArtDirector}
                       isDesigner={isDesigner}
@@ -1910,6 +1963,7 @@ export default function DailyTaskPage() {
                       onToggleMarkComplete={handleToggleMarkComplete}
                       onToggleArtDirectorApproval={handleToggleArtDirectorApproval}
                       onToggleClientApproval={handleToggleClientApproval}
+                      onChangeStage={handleSuperuserStageChange}
                       onAddRevision={openCreateRevisionTask}
                       onAddRedo={openCreateRedoTask}
                       onOpenHistory={openTaskHistory}
